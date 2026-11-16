@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('Styles') ?>
+  <style>
+    :root { --primary: <?= color ?>; }
+    .layout { display: grid; grid-template-columns: 230px 1fr; min-height: 100vh; }
+    nav.side { background: #0f172a; color: #cbd5e1; padding: 16px 10px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+    nav.side .brand { color: #fff; font-weight: 700; font-size: 1.05rem; padding: 4px 10px 14px; }
+    nav.side a { display: flex; gap: 10px; align-items: center; color: #cbd5e1; text-decoration: none; padding: 9px 12px; border-radius: 9px; font-weight: 500; cursor: pointer; }
+    nav.side a.on, nav.side a:hover { background: #1e293b; color: #fff; }
+    nav.side .count { margin-left: auto; background: var(--bad); color: #fff; border-radius: 999px; font-size: 11px; padding: 1px 7px; }
+    .content { padding: 20px; max-width: 1300px; width: 100%; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 10px; flex-wrap: wrap; }
+    .banner { padding: 10px 14px; border-radius: 10px; margin-bottom: 14px; font-weight: 500; }
+    .banner.warn { background: #fef3c7; color: #92400e; } .banner.bad { background: #fee2e2; color: #991b1b; }
+    .filters { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); align-items: end; }
+    .filters label { margin-top: 0; }
+    .thumb { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; background: var(--primary-soft); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; color: var(--primary); }
+    .chart-box { position: relative; height: 290px; }
+    #qr { display: inline-block; padding: 14px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
+    .login { max-width: 400px; margin: 8vh auto; padding: 0 16px; }
+    .presets { display: flex; gap: 6px; flex-wrap: wrap; }
+    tr.click { cursor: pointer; } tr.click:hover td { background: #f8fafc; }
+    @media (max-width: 860px) {
+      .layout { grid-template-columns: 1fr; }
+      nav.side { position: sticky; height: auto; display: flex; overflow-x: auto; padding: 8px; z-index: 30; }
+      nav.side .brand, nav.side .foot { display: none; }
+      nav.side a { white-space: nowrap; padding: 8px 10px; }
+      .content { padding: 12px; }
+    }
+    @media print { nav.side, .topbar, .noprint, .banner { display: none !important; } .layout { display: block; } .card { box-shadow: none; } }
+  </style>
+</head>
+<body>
+  <!-- LOGIN -->
+  <div id="v-login" class="login hidden">
+    <div class="card">
+      <h1>Panel administrativo</h1>
+      <p class="muted">Ingresa para gestionar tu catálogo y pedidos.</p>
+      <form id="f-login">
+        <label>Código de empresa</label><input id="l-slug" required autocapitalize="none" placeholder="mi-empresa">
+        <label>Correo</label><input id="l-email" type="email" required autocomplete="username">
+        <label>Clave</label><input id="l-clave" type="password" required autocomplete="current-password">
+        <button class="btn primary block" style="margin-top:16px" type="submit">Ingresar</button>
+      </form>
+      <p class="small muted" style="margin-top:12px">¿Olvidaste tu clave? Pide al administrador de tu cuenta o a soporte que la restablezca.</p>
+    </div>
+  </div>
+
+  <!-- APP -->
+  <div id="v-app" class="layout hidden">
+    <nav class="side">
+      <div class="brand" id="brand"></div>
+      <a data-tab="resumen">📦 Pendientes <span class="count hidden" id="cnt-pend"></span></a>
+      <a data-tab="pedidos">🧾 Pedidos</a>
+      <a data-tab="productos">🏷️ Productos</a>
+      <a data-tab="ventas">📈 Ventas</a>
+      <a data-tab="formulario">🔗 Formulario y QR</a>
+      <a data-tab="config" data-admin>⚙️ Configuración</a>
+      <a data-tab="usuarios" data-admin>👥 Usuarios</a>
+      <a data-tab="cuenta">💳 Mi cuenta</a>
+      <div class="foot small" style="margin-top:20px;padding:0 12px"><div class="small" id="who"></div><a id="salir" style="padding-left:0">↩ Salir</a></div>
+    </nav>
+    <main class="content">
+      <div id="banner"></div>
+      <section id="t-resumen" class="tab"></section>
+      <section id="t-pedidos" class="tab hidden"></section>
+      <section id="t-productos" class="tab hidden"></section>
+      <section id="t-ventas" class="tab hidden"></section>
+      <section id="t-formulario" class="tab hidden"></section>
+      <section id="t-config" class="tab hidden"></section>
+      <section id="t-usuarios" class="tab hidden"></section>
+      <section id="t-cuenta" class="tab hidden"></section>
+    </main>
+  </div>
+
+  <?!= include('Common') ?>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script>
+    const BOOT = <?!= boot ?>;
+    let TOKEN = store.get('adm_token', null);
+    let CUENTA = null;
+    let tabActual = 'resumen';
+    let ultimoPendientes = null;
+    const charts = {};
+    const esAdmin = () => CUENTA && CUENTA.usuario.rol === 'ADMIN';
+
+    function api(accion, datos) {
+      return call('apiAdmin', TOKEN, accion, datos || {}).catch(e => {
+        if (/SESION_EXPIRADA/.test(e.message)) { toast('Tu sesión expiró. Ingresa de nuevo.', 'err'); salir(); }
+        throw e;
+      });
+    }
+    function telWa(t) { let d = String(t || '').replace(/\D/g, ''); if (d.length === 10 && d[0] === '3') d = '57' + d; return d; }
+    function csv(nombre, filas) {
+      const txt = filas.map(r => r.map(v => { v = v === null || v === undefined ? '' : String(v); if (/^[=+\-@]/.test(v)) v = "'" + v; return /[",;\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(';')).join('\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(['﻿' + txt], { type: 'text/csv;charset=utf-8' }));
+      a.download = nombre; a.click();
+    }
+
+    /* ================= Sesión ================= */
+    $('#l-slug').value = BOOT.slug || store.get('adm_slug', '');
+    $('#f-login').addEventListener('submit', async e => {
+      e.preventDefault();
+      const b = e.submitter; b.disabled = true;
+      try {
+        const r = await call('loginEmpresa', $('#l-slug').value.trim().toLowerCase(), $('#l-email').value, $('#l-clave').value);
+        TOKEN = r.token; store.set('adm_token', TOKEN); store.set('adm_slug', r.empresa.slug);
+        iniciar();
+      } catch (err) { toast(err.message, 'err'); } finally { b.disabled = false; }
+    });
+    $('#salir').onclick = () => { call('logout', TOKEN); salir(); };
+    function salir() { TOKEN = null; store.del('adm_token'); $('#v-app').classList.add('hidden'); $('#v-login').classList.remove('hidden'); }
+
+    async function iniciar() {
+      if (!TOKEN) return salir();
+      try { CUENTA = await api('estadoCuenta'); } catch (e) { return salir(); }
+      $('#v-login').classList.add('hidden'); $('#v-app').classList.remove('hidden');
+      document.documentElement.style.setProperty('--primary', CUENTA.config.colorPrimario || '#0f766e');
+      $('#brand').textContent = CUENTA.config.nombreNegocio || CUENTA.empresa.nombre;
+      $('#who').textContent = CUENTA.usuario.nombre + ' · ' + CUENTA.usuario.rol;
+      $$('[data-admin]').forEach(a => a.classList.toggle('hidden', !esAdmin()));
+      const e = CUENTA.empresa.estado, s = CUENTA.suscripcion;
+      $('#banner').innerHTML = e === 'SUSPENDIDA' ? '<div class="banner bad">⛔ Tu cuenta está suspendida por pago pendiente: el formulario público no recibe pedidos. Revisa <a data-go="cuenta" href="#">Mi cuenta</a>.</div>'
+        : e === 'PRUEBA' ? '<div class="banner warn">🎁 Estás en período de prueba hasta el ' + fDia(s.fechaFinPrueba) + '.</div>' : '';
+      tab(tabActual);
+    }
+    document.addEventListener('click', e => { const g = e.target.closest('[data-go]'); if (g) { e.preventDefault(); tab(g.dataset.go); } });
+
+    /* ================= Navegación ================= */
+    $$('nav.side [data-tab]').forEach(a => a.onclick = () => tab(a.dataset.tab));
+    function tab(t) {
+      tabActual = t;
+      $$('nav.side [data-tab]').forEach(a => a.classList.toggle('on', a.dataset.tab === t));
+      $$('.tab').forEach(s => s.classList.toggle('hidden', s.id !== 't-' + t));
+      ({ resumen: vResumen, pedidos: vPedidos, productos: vProductos, ventas: vVentas, formulario: vFormulario, config: vConfig, usuarios: vUsuarios, cuenta: vCuenta })[t]();
+    }
+    const cargando = id => { $('#t-' + id).innerHTML = '<div class="loading"><span class="spinner"></span></div>'; };
+
+    /* ================= Pendientes (acumulado) ================= */
+    async function vResumen(silencioso) {
+      if (!silencioso) cargando('resumen');
+      let r;
+      try { r = await api('resumen'); } catch (e) { if (!silencioso) $('#t-resumen').innerHTML = '<div class="card empty">' + esc(e.message) + '</div>'; return; }
+      if (ultimoPendientes !== null && r.pendientes > ultimoPendientes) toast('🛒 ¡Llegó un nuevo pedido!', 'ok');
+      ultimoPendientes = r.pendientes;
+      $('#cnt-pend').textContent = r.pendientes; $('#cnt-pend').classList.toggle('hidden', !r.pendientes);
+      if (tabActual !== 'resumen') return;
+      $('#t-resumen').innerHTML =
+        '<div class="topbar"><h1>Pedidos pendientes por despachar</h1><div class="row noprint"><button class="btn" id="r-print">🖨 Imprimir alistamiento</button><button class="btn" id="r-csv">⬇ CSV</button><button class="btn" id="r-ref">↻</button></div></div>' +
+        '<div class="grid g4">' +
+        kpi('Pedidos pendientes', r.pendientes) + kpi('Valor pendiente', fmt(r.valorPendiente)) + kpi('Domicilios pendientes', r.domiciliosPendientes) + kpi('Pedidos de hoy', r.pedidosHoy) + '</div>' +
+        '<div class="row" style="margin:14px 0">' + Object.keys(BOOT.estados).map(k => '<a href="#" data-filtro="' + k + '" style="text-decoration:none">' + badge(k) + ' <b>' + (r.conteo[k] || 0) + '</b></a>').join(' &nbsp; ') + '</div>' +
+        '<div class="card"><h2>Acumulado por producto</h2><p class="small muted">Cantidades de todos los pedidos Solicitados, Recibidos y Sin existencias.</p><div class="table-wrap"><table><tr><th>Producto</th><th class="right">Solicitado</th><th class="right">Recibido</th><th class="right">Sin exist.</th><th class="right">Total unidades</th><th class="right">Pedidos</th><th class="right">Valor</th></tr>' +
+        (r.productos.length ? r.productos.map(p => '<tr><td><b>' + esc(p.nombre) + '</b><div class="small muted">' + esc([p.marca, p.presentacion].filter(Boolean).join(' · ')) + '</div></td><td class="right">' + p.solicitado + '</td><td class="right">' + p.recibido +
+          '</td><td class="right">' + p.sinExistencias + '</td><td class="right"><b>' + p.cantidad + '</b></td><td class="right">' + p.pedidos + '</td><td class="right">' + fmt(p.valor) + '</td></tr>').join('')
+          : '<tr><td colspan="7" class="empty">No hay pedidos pendientes 🎉</td></tr>') + '</table></div></div>' +
+        '<div class="card" style="margin-top:14px"><h2>Últimos pendientes</h2>' + tablaPedidos(r.ultimos, false) + '</div>';
+      $('#r-ref').onclick = () => vResumen();
+      $('#r-print').onclick = () => window.print();
+      $('#r-csv').onclick = () => csv('alistamiento.csv', [['Producto', 'Marca', 'Presentación', 'Solicitado', 'Recibido', 'Sin existencias', 'Total', 'Pedidos', 'Valor']]
+        .concat(r.productos.map(p => [p.nombre, p.marca, p.presentacion, p.solicitado, p.recibido, p.sinExistencias, p.cantidad, p.pedidos, p.valor])));
+      $$('[data-filtro]').forEach(a => a.onclick = e => { e.preventDefault(); filtrosPedidos.estado = a.dataset.filtro; tab('pedidos'); });
+    }
+    function kpi(l, v, extra) { return '<div class="card kpi"><div class="l">' + esc(l) + '</div><div class="v">' + v + '</div>' + (extra ? '<div class="small muted">' + extra + '</div>' : '') + '</div>'; }
+    setInterval(() => { if (TOKEN && CUENTA && document.visibilityState === 'visible') vResumen(true); }, 45000);
+
+    /* ================= Pedidos ================= */
+    const filtrosPedidos = { estado: 'PENDIENTES', desde: '', hasta: '', texto: '', entregaTipo: '' };
+    let pedidosCache = [];
+    function tablaPedidos(lista, conCheck) {
+      if (!lista.length) return '<div class="empty">Sin pedidos para mostrar.</div>';
+      return '<div class="table-wrap"><table><tr>' + (conCheck ? '<th><input type="checkbox" id="chk-all" style="width:auto"></th>' : '') +
+        '<th>Pedido</th><th>Fecha</th><th>Cliente</th><th class="hide-sm">Entrega</th><th class="right">Total</th><th>Estado</th></tr>' +
+        lista.map(p => '<tr class="click" data-ped="' + esc(p.id) + '">' + (conCheck ? '<td><input type="checkbox" class="chk" value="' + esc(p.id) + '" style="width:auto"></td>' : '') +
+          '<td><b>' + esc(p.id) + '</b><div class="small muted">' + p.itemsCount + ' und.</div></td><td>' + fFecha(p.fecha) + '</td><td>' + esc(p.nombre) + '<div class="small muted">' + esc(p.telefono) + '</div></td>' +
+          '<td class="hide-sm">' + (p.entregaTipo === 'DOMICILIO' ? '🛵 ' + esc(p.direccion).slice(0, 50) : '🏪 Recoge') + '</td><td class="right">' + fmt(p.total) + '</td><td>' + badge(p.estado) + '</td></tr>').join('') + '</table></div>';
+    }
+    document.addEventListener('click', e => {
+      if (e.target.closest('.chk, #chk-all')) return;
+      const r = e.target.closest('[data-ped]'); if (r) verPedido(r.dataset.ped);
+    });
+
+    async function vPedidos() {
+      const f = filtrosPedidos;
+      $('#t-pedidos').innerHTML = '<div class="topbar"><h1>Pedidos</h1><button class="btn" id="p-csv">⬇ Exportar CSV</button></div>' +
+        '<div class="card filters"><div><label>Estado</label><select id="f-estado"><option value="">Todos</option><option value="PENDIENTES">Pendientes (por despachar)</option>' +
+        Object.keys(BOOT.estados).map(k => '<option value="' + k + '">' + BOOT.estados[k] + '</option>').join('') + '</select></div>' +
+        '<div><label>Desde</label><input type="date" id="f-desde"></div><div><label>Hasta</label><input type="date" id="f-hasta"></div>' +
+        '<div><label>Entrega</label><select id="f-ent"><option value="">Todas</option><option value="RECOGE">Recoge</option><option value="DOMICILIO">Domicilio</option></select></div>' +
+        '<div><label>Buscar</label><input id="f-texto" placeholder="N°, cliente, teléfono…"></div><div><button class="btn primary block" id="f-ok">Filtrar</button></div></div>' +
+        '<div class="row noprint" style="margin:12px 0" id="bulk"><span class="small muted">Con seleccionados:</span>' +
+        ['RECIBIDO', 'DESPACHADO', 'SIN_EXISTENCIAS', 'CANCELADO', 'ANULADO'].map(k => '<button class="btn sm" data-bulk="' + k + '">→ ' + BOOT.estados[k] + '</button>').join('') + '</div>' +
+        '<div class="card" id="p-lista"><div class="loading"><span class="spinner"></span></div></div>';
+      $('#f-estado').value = f.estado; $('#f-desde').value = f.desde; $('#f-hasta').value = f.hasta; $('#f-texto').value = f.texto; $('#f-ent').value = f.entregaTipo;
+      $('#f-ok').onclick = () => { Object.assign(f, { estado: $('#f-estado').value, desde: $('#f-desde').value, hasta: $('#f-hasta').value, texto: $('#f-texto').value, entregaTipo: $('#f-ent').value }); cargarPedidos(); };
+      $('#f-texto').onkeydown = e => { if (e.key === 'Enter') $('#f-ok').click(); };
+      $$('[data-bulk]').forEach(b => b.onclick = () => masivo(b.dataset.bulk));
+      $('#p-csv').onclick = () => csv('pedidos.csv', [['Pedido', 'Fecha', 'Estado', 'Cliente', 'Teléfono', 'Email', 'Entrega', 'Dirección', 'Subtotal', 'Envío', 'Total', 'Notas']]
+        .concat(pedidosCache.map(p => [p.id, fFecha(p.fecha), BOOT.estados[p.estado], p.nombre, p.telefono, p.email, p.entregaTipo, p.direccion, p.subtotal, p.envio, p.total, p.notas])));
+      cargarPedidos();
+    }
+    async function cargarPedidos() {
+      try {
+        const r = await api('listarPedidos', filtrosPedidos);
+        pedidosCache = r.pedidos;
+        $('#p-lista').innerHTML = '<div class="small muted" style="margin-bottom:8px">' + r.total + ' pedido(s)' + (r.total > r.pedidos.length ? ' · mostrando ' + r.pedidos.length : '') + '</div>' + tablaPedidos(r.pedidos, true);
+        const all = $('#chk-all'); if (all) all.onchange = () => $$('.chk').forEach(c => { c.checked = all.checked; });
+      } catch (e) { $('#p-lista').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+    }
+    async function masivo(estado) {
+      const ids = $$('.chk:checked').map(c => c.value);
+      if (!ids.length) return toast('Selecciona al menos un pedido', 'err');
+      const req = estado === 'ANULADO' || estado === 'CANCELADO';
+      const nota = await confirmar('Cambiar ' + ids.length + ' pedido(s) a ' + BOOT.estados[estado] + '.', true);
+      if (nota === null) return;
+      if (req && !nota) return toast('Indica el motivo', 'err');
+      try {
+        const r = await api('cambiarEstado', { ids: ids, estado: estado, nota: nota });
+        const malos = r.filter(x => !x.ok);
+        toast((r.length - malos.length) + ' actualizado(s)' + (malos.length ? ', ' + malos.length + ' con error: ' + malos.map(m => m.id + ' (' + m.error + ')').join(', ') : ''), malos.length ? 'err' : 'ok');
+        cargarPedidos(); vResumen(true);
+      } catch (e) { toast(e.message, 'err'); }
+    }
+
+    async function verPedido(id) {
+      const m = modal('<div class="loading"><span class="spinner"></span></div>', { ancho: 760 });
+      let p;
+      try { p = await api('detallePedido', { id: id }); } catch (e) { m.el.innerHTML = '<p>' + esc(e.message) + '</p><button class="btn" data-close>Cerrar</button>'; return; }
+      const txt = textoPedido(p, p.items, CUENTA.config.nombreNegocio, p.urlSeguimiento);
+      m.el.innerHTML = '<div class="row between"><h2>Pedido ' + esc(p.id) + '</h2>' + badge(p.estado) + '</div>' +
+        '<div class="grid g2" style="margin-top:8px"><div><b>' + esc(p.nombre) + '</b><br>📞 ' + esc(p.telefono) + (p.email ? '<br>✉️ ' + esc(p.email) : '') + '<br>' +
+        (p.entregaTipo === 'DOMICILIO' ? '🛵 ' + esc(p.direccion) : '🏪 Recoge en el punto') + (p.notas ? '<br>📝 ' + esc(p.notas) : '') + '<div class="small muted">' + fFecha(p.fecha) + '</div></div>' +
+        '<div><b>Historial</b><ul class="timeline" style="margin-top:6px">' + p.historial.map(h => '<li><b>' + esc(BOOT.estados[h.estadoNuevo]) + '</b> <span class="small muted">' + fFecha(h.fecha) + ' · ' + esc(h.usuario) + '</span>' + (h.nota ? '<div class="small">' + esc(h.nota) + '</div>' : '') + '</li>').join('') + '</ul></div></div>' +
+        '<div class="table-wrap"><table><tr><th>Producto</th><th class="center">Cant.</th><th class="right">Precio</th><th class="right">Subtotal</th></tr>' +
+        p.items.map(i => '<tr><td>' + esc(i.nombre) + '<div class="small muted">' + esc([i.marca, i.presentacion].filter(Boolean).join(' · ')) + '</div></td><td class="center">' + i.cantidad + '</td><td class="right">' + fmt(i.precio) + '</td><td class="right">' + fmt(i.subtotal) + '</td></tr>').join('') +
+        '<tr><td colspan="3" class="right">Subtotal</td><td class="right">' + fmt(p.subtotal) + '</td></tr><tr><td colspan="3" class="right">Envío</td><td class="right">' + fmt(p.envio) + '</td></tr>' +
+        '<tr><td colspan="3" class="right"><b>Total</b></td><td class="right"><b>' + fmt(p.total) + '</b></td></tr></table></div>' +
+        (p.transiciones.length ? '<label>Nota para el cambio de estado (se envía al cliente)</label><input id="d-nota" placeholder="Opcional; obligatorio para cancelar/anular">' +
+          '<div class="row" style="margin-top:10px">' + p.transiciones.map(t => '<button class="btn ' + (t === 'DESPACHADO' || t === 'RECIBIDO' ? 'primary' : t === 'ANULADO' ? 'danger' : '') + '" data-est="' + t + '">→ ' + BOOT.estados[t] + '</button>').join('') + '</div>' : '<p class="muted small">Estado final: no admite más cambios.</p>') +
+        '<div class="row" style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px"><button class="btn sm" id="d-copy">📋 Copiar</button><button class="btn sm" id="d-link">🔗 Enlace seguimiento</button>' +
+        '<button class="btn sm wa" id="d-wa">💬 WhatsApp al cliente</button>' + (p.email ? '<button class="btn sm" id="d-mail">✉️ Correo</button>' : '') +
+        '<span class="grow"></span><button class="btn sm" data-close>Cerrar</button></div>';
+      $('#d-copy', m.el).onclick = () => copiar(txt);
+      $('#d-link', m.el).onclick = () => copiar(p.urlSeguimiento);
+      $('#d-wa', m.el).onclick = () => abrir(urlWhatsApp('Hola ' + p.nombre + ', tu pedido ' + p.id + ' está ' + BOOT.estados[p.estado] + '.\n' + txt, telWa(p.telefono)));
+      if ($('#d-mail', m.el)) $('#d-mail', m.el).onclick = () => abrir(urlCorreo(p.email, 'Pedido ' + p.id + ' - ' + CUENTA.config.nombreNegocio, txt));
+      $$('[data-est]', m.el).forEach(b => b.onclick = async () => {
+        const estado = b.dataset.est, nota = $('#d-nota', m.el).value.trim();
+        if ((estado === 'ANULADO' || estado === 'CANCELADO') && !nota) return toast('Escribe el motivo en la nota', 'err');
+        if (estado === 'ANULADO' && p.estado === 'DESPACHADO' && !(await confirmar('Anular un pedido despachado reversa la venta efectiva. ¿Continuar?'))) return;
+        b.disabled = true;
+        try { await api('cambiarEstado', { id: p.id, estado: estado, nota: nota }); toast('Pedido ' + p.id + ' → ' + BOOT.estados[estado], 'ok'); m.cerrar(); if (tabActual === 'pedidos') cargarPedidos(); vResumen(tabActual !== 'resumen'); }
+        catch (e) { toast(e.message, 'err'); b.disabled = false; }
+      });
+    }
+
+    /* ================= Productos ================= */
+    let productos = [];
+    async function vProductos() {
+      cargando('productos');
+      try { productos = await api('listarProductos'); } catch (e) { $('#t-productos').innerHTML = '<div class="card empty">' + esc(e.message) + '</div>'; return; }
+      const lim = CUENTA.empresa.plan.maxProductos;
+      $('#t-productos').innerHTML = '<div class="topbar"><div><h1>Productos</h1><div class="small muted">' + productos.length + ' de ' + lim + ' permitidos en tu plan</div></div>' +
+        '<div class="row"><input id="pr-q" placeholder="Buscar…" style="width:200px">' + (esAdmin() ? '<button class="btn primary" id="pr-nuevo">＋ Nuevo producto</button>' : '') + '</div></div><div class="card" id="pr-lista"></div>';
+      const pinta = () => {
+        const q = $('#pr-q').value.toLowerCase();
+        const l = productos.filter(p => !q || [p.nombre, p.marca, p.presentacion, p.categoria].join(' ').toLowerCase().indexOf(q) >= 0);
+        $('#pr-lista').innerHTML = l.length ? '<div class="table-wrap"><table><tr><th></th><th>Producto</th><th class="hide-sm">Categoría</th><th class="right">Precio</th><th class="hide-sm">Envío</th><th>Estado</th><th></th></tr>' +
+          l.map(p => '<tr><td>' + (p.imagenUrl ? '<img class="thumb" src="' + esc(p.imagenUrl) + '">' : '<span class="thumb">' + esc(String(p.nombre).charAt(0)) + '</span>') + '</td>' +
+            '<td><b>' + esc(p.nombre) + '</b><div class="small muted">' + esc([p.marca, p.presentacion].filter(Boolean).join(' · ')) + '</div></td><td class="hide-sm">' + esc(p.categoria) + '</td>' +
+            '<td class="right">' + fmt(p.precio) + '</td><td class="hide-sm small">' + ({ INCLUIDO: 'Incluido', EXCLUIDO: 'Tarifa domicilio', PERSONALIZADO: fmt(p.envioValor) + ' c/u' })[p.envioTipo] + '</td>' +
+            '<td>' + (p.activo === 'SI' ? '<span class="badge b-ACTIVA">Visible</span>' : '<span class="badge b-CANCELADO">Oculto</span>') + (p.disponible === 'NO' ? ' <span class="badge b-SIN_EXISTENCIAS">Agotado</span>' : '') + '</td>' +
+            '<td class="right">' + (esAdmin() ? '<button class="btn sm" data-edit="' + esc(p.id) + '">Editar</button>' : '') + '</td></tr>').join('') + '</table></div>'
+          : '<div class="empty">Sin productos. ' + (esAdmin() ? 'Crea el primero con “Nuevo producto”.' : '') + '</div>';
+        $$('[data-edit]').forEach(b => b.onclick = () => formProducto(productos.find(p => p.id === b.dataset.edit)));
+      };
+      $('#pr-q').oninput = pinta;
+      if ($('#pr-nuevo')) $('#pr-nuevo').onclick = () => formProducto({});
+      pinta();
+    }
+
+    function formProducto(p) {
+      const cats = Array.from(new Set(productos.map(x => x.categoria).filter(Boolean)));
+      const m = modal('<h2>' + (p.id ? 'Editar' : 'Nuevo') + ' producto</h2><form id="fp">' +
+        '<div class="grid g2"><div><label>Nombre *</label><input name="nombre" required maxlength="120"></div><div><label>Marca</label><input name="marca" maxlength="80"></div>' +
+        '<div><label>Presentación</label><input name="presentacion" maxlength="120" placeholder="Ej: Caja x 12 und, Bolsa 500 g"></div>' +
+        '<div><label>Categoría</label><input name="categoria" list="dl-cats" maxlength="60"><datalist id="dl-cats">' + cats.map(c => '<option value="' + esc(c) + '">').join('') + '</datalist></div></div>' +
+        '<label>Descripción / especificaciones</label><textarea name="descripcion" maxlength="1500"></textarea>' +
+        '<div class="grid g2"><div><label>Precio (COP) *</label><input name="precio" type="number" min="0" step="1" required></div><div><label>Orden en el catálogo</label><input name="orden" type="number" min="0"></div>' +
+        '<div><label>Costo de envío</label><select name="envioTipo"><option value="INCLUIDO">Incluido en el precio</option><option value="EXCLUIDO">Excluido: aplica tarifa de domicilio del negocio</option><option value="PERSONALIZADO">Valor personalizado por unidad</option></select></div>' +
+        '<div id="box-ev"><label>Valor envío por unidad</label><input name="envioValor" type="number" min="0" step="1"></div>' +
+        '<div><label>Visible en catálogo</label><select name="activo"><option value="SI">Sí</option><option value="NO">No (oculto)</option></select></div>' +
+        '<div><label>Disponibilidad</label><select name="disponible"><option value="SI">Disponible</option><option value="NO">Agotado</option></select></div></div>' +
+        '<label>Imagen</label><div class="row"><img id="fp-prev" class="thumb" style="width:90px;height:90px' + (p.imagenUrl ? '' : ';display:none') + '" src="' + esc(p.imagenUrl || '') + '">' +
+        '<div class="grow"><input type="file" id="fp-file" accept="image/*"><input name="imagenUrl" placeholder="…o pega la URL de una imagen" style="margin-top:6px"></div></div>' +
+        '<input type="hidden" name="imagenId"><div class="row" style="margin-top:16px">' + (p.id ? '<button type="button" class="btn danger" id="fp-del">Eliminar</button>' : '') +
+        '<span class="grow"></span><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary" type="submit">Guardar</button></div></form>', { ancho: 720 });
+      const f = $('#fp', m.el);
+      ['nombre', 'marca', 'presentacion', 'categoria', 'descripcion', 'precio', 'orden', 'envioTipo', 'envioValor', 'activo', 'disponible', 'imagenUrl', 'imagenId']
+        .forEach(k => { if (p[k] !== undefined && p[k] !== '') f.elements[k].value = p[k]; });
+      const ev = () => $('#box-ev', m.el).classList.toggle('hidden', f.elements.envioTipo.value !== 'PERSONALIZADO');
+      f.elements.envioTipo.onchange = ev; ev();
+      f.elements.imagenUrl.oninput = () => { const prev = $('#fp-prev', m.el); prev.src = f.elements.imagenUrl.value; prev.style.display = f.elements.imagenUrl.value ? '' : 'none'; f.elements.imagenId.value = ''; };
+      $('#fp-file', m.el).onchange = async e => {
+        const file = e.target.files[0]; if (!file) return;
+        try {
+          toast('Subiendo imagen…');
+          const img = await leerImagen(file, 1000);
+          $('#fp-prev', m.el).src = img.preview; $('#fp-prev', m.el).style.display = '';
+          const r = await api('subirImagen', { base64: img.base64, mime: img.mime, reemplazaId: f.elements.imagenId.value });
+          f.elements.imagenId.value = r.imagenId; f.elements.imagenUrl.value = r.imagenUrl;
+          toast('Imagen cargada', 'ok');
+        } catch (err) { toast(err.message, 'err'); }
+      };
+      f.onsubmit = async e => {
+        e.preventDefault();
+        const d = Object.fromEntries(new FormData(f).entries()); d.id = p.id;
+        try { await api('guardarProducto', d); toast('Producto guardado', 'ok'); m.cerrar(); vProductos(); } catch (err) { toast(err.message, 'err'); }
+      };
+      if ($('#fp-del', m.el)) $('#fp-del', m.el).onclick = async () => {
+        if (!(await confirmar('¿Eliminar "' + p.nombre + '"? Los pedidos históricos conservan su información.'))) return;
+        try { await api('eliminarProducto', { id: p.id }); toast('Producto eliminado', 'ok'); m.cerrar(); vProductos(); } catch (err) { toast(err.message, 'err'); }
+      };
+    }
+
+    /* ================= Ventas / Dashboard ================= */
+    const rango = { desde: hoyISO(-29), hasta: hoyISO(0) };
+    let dash = null;
+    function vVentas() {
+      $('#t-ventas').innerHTML = '<div class="topbar"><h1>Ventas efectivas</h1><button class="btn" id="v-csv">⬇ Exportar ventas</button></div>' +
+        '<div class="card filters"><div><label>Desde</label><input type="date" id="v-desde"></div><div><label>Hasta</label><input type="date" id="v-hasta"></div>' +
+        '<div style="grid-column:span 2"><label>Rápido</label><div class="presets">' +
+        [['hoy', 'Hoy'], ['7', '7 días'], ['30', '30 días'], ['mes', 'Este mes'], ['mesant', 'Mes anterior'], ['anio', 'Este año']].map(x => '<span class="chip" data-pre="' + x[0] + '">' + x[1] + '</span>').join('') + '</div></div>' +
+        '<div><button class="btn primary block" id="v-ok">Aplicar</button></div></div><div id="v-body" style="margin-top:14px"><div class="loading"><span class="spinner"></span></div></div>';
+      $('#v-desde').value = rango.desde; $('#v-hasta').value = rango.hasta;
+      $('#v-ok').onclick = () => { rango.desde = $('#v-desde').value; rango.hasta = $('#v-hasta').value; if (rango.desde > rango.hasta) return toast('Rango inválido', 'err'); cargarDash(); };
+      $$('[data-pre]').forEach(c => c.onclick = () => {
+        const now = new Date(), y = now.getFullYear(), mo = now.getMonth(), iso = d => d.toLocaleDateString('en-CA');
+        const k = c.dataset.pre;
+        if (k === 'hoy') { rango.desde = rango.hasta = hoyISO(0); }
+        else if (k === '7' || k === '30') { rango.desde = hoyISO(-(Number(k) - 1)); rango.hasta = hoyISO(0); }
+        else if (k === 'mes') { rango.desde = iso(new Date(y, mo, 1)); rango.hasta = hoyISO(0); }
+        else if (k === 'mesant') { rango.desde = iso(new Date(y, mo - 1, 1)); rango.hasta = iso(new Date(y, mo, 0)); }
+        else if (k === 'anio') { rango.desde = iso(new Date(y, 0, 1)); rango.hasta = hoyISO(0); }
+        $('#v-desde').value = rango.desde; $('#v-hasta').value = rango.hasta; cargarDash();
+      });
+      $('#v-csv').onclick = () => dash && csv('ventas_' + dash.desde + '_' + dash.hasta + '.csv', [['Pedido', 'Fecha pedido', 'Fecha despacho', 'Cliente', 'Teléfono', 'Entrega', 'Subtotal', 'Envío', 'Total']]
+        .concat(dash.ventas.map(v => [v.pedidoId, fFecha(v.fechaPedido), fFecha(v.fechaDespacho), v.cliente, v.telefono, v.entregaTipo, v.subtotal, v.envio, v.total])));
+      cargarDash();
+    }
+    async function cargarDash() {
+      $('#v-body').innerHTML = '<div class="loading"><span class="spinner"></span></div>';
+      try { dash = await api('dashboard', rango); } catch (e) { $('#v-body').innerHTML = '<div class="card empty">' + esc(e.message) + '</div>'; return; }
+      const k = dash.kpis;
+      $('#v-body').innerHTML = '<div class="grid g4">' +
+        kpi('Ingresos (ventas efectivas)', fmt(k.ingresos), 'Incluye envíos: ' + fmt(k.ingresosEnvio)) + kpi('Ventas efectivas', k.ventasEfectivas, fNum(k.unidadesVendidas) + ' unidades') +
+        kpi('Ticket promedio', fmt(k.ticketPromedio)) + kpi('Pedidos del período', k.pedidosPeriodo) +
+        kpi('Pendientes por despachar', k.pendientesTotal, k.pendientesPeriodo + ' del período') + kpi('Cancelados / Anulados', k.cancelados + ' / ' + k.anulados, fNum(k.tasaCancelacion) + '% del período') +
+        kpi('Cumplimiento de despachos', fNum(k.cumplimiento) + '%', 'Despachados ÷ pedidos no anulados') + kpi('Tiempo prom. de despacho', fNum(k.horasPromedioDespacho) + ' h', 'Sin existencias: ' + k.sinExistencias) + '</div>' +
+        '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr));margin-top:14px">' +
+        '<div class="card" style="grid-column:1/-1"><h3>Tendencia de ventas</h3><div class="chart-box"><canvas id="c-serie"></canvas></div></div>' +
+        '<div class="card"><h3>Productos más vendidos</h3><div class="chart-box"><canvas id="c-top"></canvas></div></div>' +
+        '<div class="card"><h3>Pedidos por estado</h3><div class="chart-box"><canvas id="c-est"></canvas></div></div>' +
+        '<div class="card"><h3>Tipo de entrega (ventas)</h3><div class="chart-box"><canvas id="c-ent"></canvas></div></div>' +
+        '<div class="card"><h3>Mejores clientes</h3><div class="table-wrap"><table><tr><th>Cliente</th><th class="right">Pedidos</th><th class="right">Total</th></tr>' +
+        (dash.topClientes.map(c => '<tr><td>' + esc(c.cliente) + '<div class="small muted">' + esc(c.telefono) + '</div></td><td class="right">' + c.pedidos + '</td><td class="right">' + fmt(c.total) + '</td></tr>').join('') || '<tr><td colspan="3" class="empty">Sin datos</td></tr>') + '</table></div></div></div>' +
+        '<div class="card" style="margin-top:14px"><h3>Detalle de ventas efectivas</h3><div class="table-wrap"><table><tr><th>Pedido</th><th>Despachado</th><th>Cliente</th><th class="hide-sm">Entrega</th><th class="right">Total</th></tr>' +
+        (dash.ventas.slice(0, 200).map(v => '<tr class="click" data-ped="' + esc(v.pedidoId) + '"><td><b>' + esc(v.pedidoId) + '</b></td><td>' + fFecha(v.fechaDespacho) + '</td><td>' + esc(v.cliente) + '</td><td class="hide-sm">' + (v.entregaTipo === 'DOMICILIO' ? '🛵' : '🏪') + '</td><td class="right">' + fmt(v.total) + '</td></tr>').join('') || '<tr><td colspan="5" class="empty">Sin ventas en el período</td></tr>') +
+        '</table></div></div>';
+      graficar();
+    }
+    function graficar() {
+      if (typeof Chart === 'undefined') { $$('.chart-box').forEach(b => { b.innerHTML = '<div class="empty">No se pudo cargar la librería de gráficas. Revisa tu conexión.</div>'; }); return; }
+      Object.keys(charts).forEach(k => charts[k].destroy());
+      const prim = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#0f766e';
+      Chart.defaults.font.family = 'Inter, system-ui, sans-serif';
+      charts.serie = new Chart($('#c-serie'), {
+        data: {
+          labels: dash.serie.map(s => s.fecha.slice(5)),
+          datasets: [
+            { type: 'line', label: 'Ingresos', data: dash.serie.map(s => s.ingresos), borderColor: prim, backgroundColor: prim + '22', fill: true, tension: .3, yAxisID: 'y' },
+            { type: 'bar', label: 'Pedidos recibidos', data: dash.serie.map(s => s.pedidos), backgroundColor: '#94a3b8', yAxisID: 'y1' },
+            { type: 'bar', label: 'Cancelados/anulados', data: dash.serie.map(s => s.cancelados), backgroundColor: '#fca5a5', yAxisID: 'y1' },
+          ],
+        },
+        options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          scales: { y: { position: 'left', ticks: { callback: v => fmt(v) } }, y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { precision: 0 } } },
+          plugins: { tooltip: { callbacks: { label: c => c.dataset.label + ': ' + (c.dataset.yAxisID === 'y' ? fmt(c.raw) : c.raw) } } } },
+      });
+      charts.top = new Chart($('#c-top'), {
+        type: 'bar', data: { labels: dash.topProductos.map(p => p.nombre.slice(0, 28)), datasets: [{ label: 'Unidades', data: dash.topProductos.map(p => p.cantidad), backgroundColor: prim }] },
+        options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { afterLabel: c => 'Ingresos: ' + fmt(dash.topProductos[c.dataIndex].ingresos) } } } },
+      });
+      const colEst = { SOLICITADO: '#3b82f6', RECIBIDO: '#f59e0b', DESPACHADO: '#16a34a', CANCELADO: '#94a3b8', ANULADO: '#dc2626', SIN_EXISTENCIAS: '#ea580c' };
+      const ks = Object.keys(dash.porEstado);
+      charts.est = new Chart($('#c-est'), { type: 'doughnut', data: { labels: ks.map(k => BOOT.estados[k]), datasets: [{ data: ks.map(k => dash.porEstado[k]), backgroundColor: ks.map(k => colEst[k]) }] }, options: { maintainAspectRatio: false } });
+      charts.ent = new Chart($('#c-ent'), { type: 'pie', data: { labels: ['Recoge', 'Domicilio'], datasets: [{ data: [dash.entrega.RECOGE, dash.entrega.DOMICILIO], backgroundColor: [prim, '#64748b'] }] }, options: { maintainAspectRatio: false } });
+    }
+
+    /* ================= Formulario y QR ================= */
+    function vFormulario() {
+      const url = CUENTA.urls.tienda;
+      const negocio = CUENTA.config.nombreNegocio || CUENTA.empresa.nombre;
+      $('#t-formulario').innerHTML = '<div class="topbar"><h1>Formulario de pedidos</h1></div><div class="grid g2">' +
+        '<div class="card"><h3>Enlace público</h3><p class="small muted">Compártelo con tus clientes por WhatsApp, redes sociales o tu sitio web.</p>' +
+        '<div class="row"><input id="fu-url" readonly style="flex:1"><button class="btn primary" id="fu-copy">Copiar</button></div>' +
+        '<div class="row" style="margin-top:10px"><a class="btn" href="' + esc(url) + '" target="_blank">↗ Abrir formulario</a><button class="btn wa" id="fu-wa">💬 Compartir por WhatsApp</button><button class="btn" id="fu-mail">✉️ Correo</button></div>' +
+        '<h3 style="margin-top:20px">Incrustar en tu página web</h3><textarea id="fu-embed" readonly style="font-family:monospace;font-size:12px"></textarea><button class="btn sm" id="fu-embed-copy">Copiar código</button></div>' +
+        '<div class="card center"><h3>Código QR</h3><div id="qr"></div><div class="row" style="justify-content:center;margin-top:12px"><button class="btn primary" id="qr-png">⬇ Descargar PNG</button><button class="btn" id="qr-print">🖨 Imprimir cartel</button></div>' +
+        '<p class="small muted">Ideal para mostrador, empaques, volantes y facturas.</p></div></div>';
+      $('#fu-url').value = url;
+      $('#fu-embed').value = '<iframe src="' + url + '" style="width:100%;height:900px;border:0" loading="lazy"></iframe>';
+      $('#fu-copy').onclick = () => copiar(url);
+      $('#fu-embed-copy').onclick = () => copiar($('#fu-embed').value);
+      $('#fu-wa').onclick = () => abrir(urlWhatsApp('Haz tu pedido en ' + negocio + ' aquí 👉 ' + url));
+      $('#fu-mail').onclick = () => abrir(urlCorreo('', 'Catálogo de pedidos - ' + negocio, 'Haz tu pedido en línea aquí: ' + url));
+      if (typeof QRCode === 'undefined') { $('#qr').textContent = 'No se pudo cargar el generador QR.'; return; }
+      new QRCode($('#qr'), { text: url, width: 260, height: 260, correctLevel: QRCode.CorrectLevel.M });
+      const qrData = () => { const c = $('#qr canvas'); const i = $('#qr img'); return c ? c.toDataURL('image/png') : (i ? i.src : ''); };
+      $('#qr-png').onclick = () => { const a = document.createElement('a'); a.href = qrData(); a.download = 'qr-pedidos-' + CUENTA.empresa.slug + '.png'; a.click(); };
+      $('#qr-print').onclick = () => {
+        const w = window.open('', '_blank');
+        w.document.write('<html><head><title>QR ' + esc(negocio) + '</title></head><body style="font-family:Arial;text-align:center;padding:40px">' +
+          '<h1 style="font-size:34px;margin:0">' + esc(negocio) + '</h1><p style="font-size:22px">Escanea y haz tu pedido</p><img src="' + qrData() + '" style="width:380px;height:380px">' +
+          '<p style="font-size:14px;color:#555;word-break:break-all">' + esc(url) + '</p><script>setTimeout(function(){window.print()},400)<\/script></body></html>');
+        w.document.close();
+      };
+    }
+
+    /* ================= Configuración ================= */
+    function vConfig() {
+      const c = CUENTA.config;
+      $('#t-config').innerHTML = '<div class="topbar"><h1>Configuración del negocio</h1></div><form class="card" id="fc">' +
+        '<div class="grid g2"><div><label>Nombre del negocio</label><input name="nombreNegocio"></div><div><label>WhatsApp del negocio (con indicativo, ej. 573001234567)</label><input name="whatsapp"></div>' +
+        '<div><label>Correo para notificaciones de pedidos</label><input name="emailNotificaciones" type="email"></div><div><label>Color de marca</label><input name="colorPrimario" type="color" style="height:40px"></div>' +
+        '<div><label>URL del logo</label><input name="logoUrl"></div><div><label>Prefijo del número de pedido</label><input name="prefijo" maxlength="5"></div></div>' +
+        '<label>Mensaje de bienvenida</label><input name="mensajeBienvenida" maxlength="200">' +
+        '<h3 style="margin-top:20px">Entregas y envíos</h3><div class="grid g2">' +
+        '<div><label>Permitir que el cliente recoja</label><select name="permitirRecoger"><option>SI</option><option>NO</option></select></div>' +
+        '<div><label>Permitir domicilio</label><select name="permitirDomicilio"><option>SI</option><option>NO</option></select></div>' +
+        '<div><label>Dirección / punto de recogida</label><input name="direccionRecogida"></div>' +
+        '<div><label>Tarifa de domicilio (productos con envío “excluido”)</label><input name="tarifaDomicilio" type="number" min="0"></div>' +
+        '<div><label>Envío gratis desde (0 = no aplica)</label><input name="envioGratisDesde" type="number" min="0"></div>' +
+        '<div><label>Pedido mínimo (0 = no aplica)</label><input name="pedidoMinimo" type="number" min="0"></div></div>' +
+        '<h3 style="margin-top:20px">Notificaciones</h3><div class="grid g2">' +
+        '<div><label>Correo al cliente cuando cambia el estado</label><select name="notificarCambiosEstado"><option>SI</option><option>NO</option></select></div>' +
+        '<div><label>Correo al negocio por cada pedido nuevo</label><select name="notificarNuevoPedido"><option>SI</option><option>NO</option></select></div></div>' +
+        '<label>Condiciones / términos que el cliente debe aceptar (opcional)</label><textarea name="terminos" maxlength="1500"></textarea>' +
+        '<div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn primary">Guardar configuración</button></div></form>';
+      const f = $('#fc');
+      Array.from(f.elements).forEach(el => { if (el.name && c[el.name] !== undefined) el.value = c[el.name]; });
+      f.onsubmit = async e => {
+        e.preventDefault();
+        try { CUENTA.config = await api('guardarConfig', Object.fromEntries(new FormData(f).entries())); toast('Configuración guardada', 'ok'); iniciar(); }
+        catch (err) { toast(err.message, 'err'); }
+      };
+    }
+
+    /* ================= Usuarios ================= */
+    async function vUsuarios() {
+      cargando('usuarios');
+      let us; try { us = await api('listarUsuarios'); } catch (e) { $('#t-usuarios').innerHTML = '<div class="card empty">' + esc(e.message) + '</div>'; return; }
+      $('#t-usuarios').innerHTML = '<div class="topbar"><div><h1>Usuarios</h1><div class="small muted">' + us.length + ' de ' + CUENTA.empresa.plan.maxUsuarios + ' en tu plan · ADMIN: todo · OPERADOR: gestiona pedidos y consulta</div></div><button class="btn primary" id="u-nuevo">＋ Nuevo usuario</button></div>' +
+        '<div class="card table-wrap"><table><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Estado</th><th class="hide-sm">Último acceso</th><th></th></tr>' +
+        us.map(u => '<tr><td>' + esc(u.nombre) + '</td><td>' + esc(u.email) + '</td><td>' + esc(u.rol) + '</td><td>' + (u.activo === 'SI' ? '<span class="badge b-ACTIVA">Activo</span>' : '<span class="badge b-CANCELADO">Inactivo</span>') +
+          '</td><td class="hide-sm">' + fFecha(u.ultimoAcceso) + '</td><td class="right"><button class="btn sm" data-u="' + esc(u.email) + '">Editar</button></td></tr>').join('') + '</table></div>';
+      const form = u => {
+        const m = modal('<h2>' + (u.email ? 'Editar' : 'Nuevo') + ' usuario</h2><form id="fu"><label>Correo</label><input name="email" type="email" required ' + (u.email ? 'readonly' : '') + '>' +
+          '<label>Nombre</label><input name="nombre" required><label>Rol</label><select name="rol"><option value="OPERADOR">Operador</option><option value="ADMIN">Administrador</option></select>' +
+          '<label>Estado</label><select name="activo"><option value="SI">Activo</option><option value="NO">Inactivo</option></select>' +
+          '<label>' + (u.email ? 'Nueva clave (dejar vacío para no cambiar)' : 'Clave inicial') + '</label><input name="clave" type="text" ' + (u.email ? '' : 'required') + ' placeholder="Mín. 8 caracteres, letras y números">' +
+          '<div class="row" style="justify-content:flex-end;margin-top:14px"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary">Guardar</button></div></form>', { ancho: 460 });
+        const f = $('#fu', m.el);
+        ['email', 'nombre', 'rol', 'activo'].forEach(k => { if (u[k]) f.elements[k].value = u[k]; });
+        f.onsubmit = async e => { e.preventDefault(); try { await api('guardarUsuario', Object.fromEntries(new FormData(f).entries())); toast('Usuario guardado', 'ok'); m.cerrar(); vUsuarios(); } catch (err) { toast(err.message, 'err'); } };
+      };
+      $('#u-nuevo').onclick = () => form({});
+      $$('[data-u]').forEach(b => b.onclick = () => form(us.find(u => u.email === b.dataset.u)));
+    }
+
+    /* ================= Mi cuenta ================= */
+    function vCuenta() {
+      const c = CUENTA, s = c.suscripcion || {}, pl = c.empresa.plan;
+      $('#t-cuenta').innerHTML = '<div class="topbar"><h1>Mi cuenta</h1></div><div class="grid g2">' +
+        '<div class="card"><h3>Suscripción</h3><p>Plan <b>' + esc(pl.nombre) + '</b> · ' + badge(c.empresa.estado) + '</p><p>Ciclo: ' + esc(s.ciclo || '') + ' · Valor: <b>' + fmt(s.valor) + '</b><br>Próximo cobro: ' + fDia(s.proximoCobro) + '</p>' +
+        '<p class="small muted">Límites: ' + pl.maxProductos + ' productos · ' + pl.maxUsuarios + ' usuarios · ' + pl.maxPedidosMes + ' pedidos/mes<br>Uso: ' + c.uso.productos + ' productos</p>' +
+        '<p class="small">Código de empresa: <b>' + esc(c.empresa.slug) + '</b></p></div>' +
+        '<form class="card" id="fk"><h3>Cambiar mi clave</h3><label>Clave actual</label><input type="password" name="actual" required><label>Nueva clave</label><input type="password" name="nueva" required minlength="8">' +
+        '<button class="btn primary" style="margin-top:12px">Actualizar clave</button></form></div>' +
+        '<div class="card" style="margin-top:14px"><h3>Facturas</h3><div class="table-wrap"><table><tr><th>Factura</th><th>Período</th><th class="right">Valor</th><th>Vence</th><th>Estado</th></tr>' +
+        (c.facturas.map(f => '<tr><td>' + esc(f.id) + '</td><td>' + esc(f.periodo) + '</td><td class="right">' + fmt(f.valor) + '</td><td>' + fDia(f.vence) + '</td><td>' + badge(f.estado) + '</td></tr>').join('') || '<tr><td colspan="5" class="empty">Sin facturas aún</td></tr>') + '</table></div></div>';
+      $('#fk').onsubmit = async e => { e.preventDefault(); try { await api('cambiarClave', Object.fromEntries(new FormData(e.target).entries())); toast('Clave actualizada', 'ok'); e.target.reset(); } catch (err) { toast(err.message, 'err'); } };
+    }
+
+    /* ================= Inicio ================= */
+    if (TOKEN) iniciar(); else salir();
+  </script>
+</body>
+</html>

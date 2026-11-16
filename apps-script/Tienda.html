@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('Styles') ?>
+  <style>
+    :root { --primary: <?= color ?>; }
+    body { padding-bottom: 90px; }
+    header.shop { background: var(--primary); color: #fff; padding: 18px 16px 22px; }
+    header.shop .wrap { max-width: 1100px; margin: auto; display: flex; gap: 14px; align-items: center; }
+    header.shop img { height: 52px; width: 52px; object-fit: cover; border-radius: 12px; background: #fff; }
+    header.shop p { margin: 2px 0 0; opacity: .9; }
+    main { max-width: 1100px; margin: -12px auto 0; padding: 0 12px; }
+    .toolbar { position: sticky; top: 0; z-index: 20; background: var(--bg); padding: 12px 0 8px; }
+    .chips { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0 2px; }
+    .products { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+    .prod { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+    .prod .img { aspect-ratio: 4/3; background: var(--primary-soft); display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 700; color: var(--primary); }
+    .prod .img img { width: 100%; height: 100%; object-fit: cover; }
+    .prod .body { padding: 12px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+    .prod .desc { color: var(--muted); font-size: 13px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .prod .price { font-size: 1.15rem; font-weight: 700; }
+    .prod .ship { font-size: 11px; color: var(--muted); }
+    .prod .foot { margin-top: auto; padding-top: 8px; display: flex; gap: 8px; align-items: center; }
+    .agotado { filter: grayscale(1); opacity: .7; }
+    .stepper { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: #fff; }
+    .stepper button { border: 0; background: #f8fafc; width: 32px; height: 34px; font-size: 18px; cursor: pointer; }
+    .stepper input { width: 46px; border: 0; text-align: center; padding: 0; height: 34px; border-radius: 0; }
+    .cartbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; padding: 10px 12px; background: #fff; border-top: 1px solid var(--line); box-shadow: 0 -6px 18px rgba(0,0,0,.06); }
+    .cartbar .wrap { max-width: 1100px; margin: auto; display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+    .line { display: grid; grid-template-columns: 56px 1fr auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .line img, .line .ph { width: 56px; height: 56px; border-radius: 9px; object-fit: cover; background: var(--primary-soft); display: flex; align-items: center; justify-content: center; font-weight: 700; color: var(--primary); }
+    .totals div { display: flex; justify-content: space-between; padding: 4px 0; }
+    .totals .t { font-size: 1.2rem; font-weight: 700; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 4px; }
+    .steps { display: flex; gap: 6px; margin: 14px 0; font-size: 12px; font-weight: 600; color: var(--muted); }
+    .steps span { flex: 1; text-align: center; padding: 6px; border-bottom: 3px solid var(--line); }
+    .steps span.on { color: var(--primary); border-color: var(--primary); }
+    .narrow { max-width: 720px; margin: 0 auto; }
+    .ok-icon { width: 70px; height: 70px; border-radius: 50%; background: #dcfce7; color: var(--ok); font-size: 38px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }
+    .hp { position: absolute; left: -9999px; }
+    @media (max-width: 520px) { .products { grid-template-columns: 1fr 1fr; gap: 10px; } .prod .body { padding: 9px; } .prod .price { font-size: 1rem; } }
+  </style>
+</head>
+<body>
+  <header class="shop"><div class="wrap">
+    <img id="logo" class="hidden" alt="">
+    <div class="grow"><h1 id="negocio"></h1><p id="bienvenida"></p></div>
+    <button class="btn sm" id="btn-mis">Mis pedidos</button>
+  </div></header>
+
+  <main>
+    <!-- CATÁLOGO -->
+    <section id="v-catalogo">
+      <div class="toolbar">
+        <input id="buscar" type="search" placeholder="Buscar por nombre, marca o presentación…">
+        <div class="chips" id="chips"></div>
+      </div>
+      <div class="products" id="productos"></div>
+    </section>
+
+    <!-- CARRITO -->
+    <section id="v-carrito" class="hidden narrow">
+      <div class="steps"><span class="on">1. Carrito</span><span>2. Tus datos</span><span>3. Confirmar</span></div>
+      <div class="card">
+        <div class="row between"><h2>Tu carrito</h2><button class="btn sm ghost" id="vaciar">Vaciar</button></div>
+        <div id="lineas"></div>
+        <div class="totals" id="tot-carrito" style="margin-top:10px"></div>
+        <p class="small muted" id="nota-envio"></p>
+        <div class="row" style="margin-top:12px">
+          <button class="btn" data-ir="catalogo">＋ Agregar más productos</button>
+          <span class="grow"></span>
+          <button class="btn primary" id="a-datos">Continuar</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- DATOS -->
+    <section id="v-datos" class="hidden narrow">
+      <div class="steps"><span class="on">1. Carrito</span><span class="on">2. Tus datos</span><span>3. Confirmar</span></div>
+      <form class="card" id="f-datos" autocomplete="on">
+        <h2>¿A nombre de quién va el pedido?</h2>
+        <label for="c-nombre">Nombre completo *</label><input id="c-nombre" name="name" required maxlength="120">
+        <label for="c-tel">Teléfono / WhatsApp *</label><input id="c-tel" name="tel" type="tel" required maxlength="25" placeholder="3001234567">
+        <label for="c-email">Correo electrónico (opcional, para recibir confirmación)</label><input id="c-email" name="email" type="email" maxlength="120">
+        <label>¿Cómo recibes tu pedido? *</label>
+        <div class="seg" id="seg-entrega">
+          <div id="op-recoge"><input type="radio" name="entrega" id="e-recoge" value="RECOGE"><label class="opt" for="e-recoge">🏪 <b>Lo recojo</b><br><span class="small muted" id="dir-recogida"></span></label></div>
+          <div id="op-domi"><input type="radio" name="entrega" id="e-domi" value="DOMICILIO"><label class="opt" for="e-domi">🛵 <b>Envío a domicilio</b><br><span class="small muted">Te lo llevamos</span></label></div>
+        </div>
+        <div id="box-dir" class="hidden"><label for="c-dir">Dirección de entrega *</label><textarea id="c-dir" maxlength="300" placeholder="Calle, número, barrio, ciudad, indicaciones"></textarea></div>
+        <label for="c-notas">Notas para el negocio</label><textarea id="c-notas" maxlength="500" placeholder="Horario de entrega, forma de pago, etc."></textarea>
+        <input class="hp" id="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <div class="totals" id="tot-datos" style="margin-top:12px"></div>
+        <div class="row" style="margin-top:12px">
+          <button type="button" class="btn" data-ir="carrito">← Carrito</button><span class="grow"></span>
+          <button class="btn primary" type="submit">Revisar pedido</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- CONFIRMAR -->
+    <section id="v-confirmar" class="hidden narrow">
+      <div class="steps"><span class="on">1. Carrito</span><span class="on">2. Tus datos</span><span class="on">3. Confirmar</span></div>
+      <div class="card">
+        <h2>Revisa y confirma tu pedido</h2>
+        <div id="resumen"></div>
+        <div id="box-terminos" class="hidden" style="margin-top:10px"><label style="display:flex;gap:8px;align-items:flex-start;font-weight:500"><input type="checkbox" id="acepto" style="width:auto"> <span id="terminos"></span></label></div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn" data-ir="carrito">Modificar carrito</button>
+          <button class="btn" data-ir="datos">Editar datos</button>
+          <span class="grow"></span>
+          <button class="btn primary" id="enviar">Confirmar y enviar pedido</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ÉXITO -->
+    <section id="v-exito" class="hidden narrow">
+      <div class="card center" style="margin-top:20px">
+        <div class="ok-icon">✓</div>
+        <h2>¡Pedido enviado!</h2>
+        <p>Tu número de pedido es</p>
+        <div style="font-size:1.8rem;font-weight:800;letter-spacing:.04em" id="ex-id"></div>
+        <p class="muted" id="ex-mail"></p>
+        <div class="card" style="text-align:left;margin:14px 0;background:#f8fafc">
+          <div class="small muted">Enlace para consultar el estado:</div>
+          <div class="row"><input id="ex-url" readonly class="grow" style="flex:1"><button class="btn sm" id="ex-copiar-url">Copiar</button></div>
+        </div>
+        <div class="grid g2" style="text-align:left">
+          <button class="btn wa block hidden" id="ex-wa-negocio">💬 Enviar al WhatsApp del negocio</button>
+          <button class="btn wa block" id="ex-wa">💬 Compartir por WhatsApp</button>
+          <button class="btn block" id="ex-mailto">✉️ Enviar por correo</button>
+          <button class="btn block" id="ex-copiar">📋 Copiar pedido</button>
+          <a class="btn block" id="ex-seguir" target="_blank">🔎 Ver estado del pedido</a>
+          <button class="btn primary block" id="ex-nuevo">🛒 Hacer otro pedido</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="cartbar" id="cartbar"><div class="wrap">
+    <div><div class="small muted" id="cb-count">0 productos</div><div style="font-weight:700;font-size:1.1rem" id="cb-total">$0</div></div>
+    <button class="btn primary" id="cb-ver">Ver carrito →</button>
+  </div></div>
+
+  <?!= include('Common') ?>
+  <script>
+    const BOOT = <?!= boot ?>;
+    const NEG = BOOT.catalogo.negocio;
+    const PRODUCTOS = BOOT.catalogo.productos;
+    const PMAP = {}; PRODUCTOS.forEach(p => { PMAP[p.id] = p; });
+    const K = { cart: 'cart_' + BOOT.slug, cli: 'cli_' + BOOT.slug, hist: 'hist_' + BOOT.slug };
+    let cart = store.get(K.cart, []).filter(l => PMAP[l.productoId]);
+    let cliente = store.get(K.cli, {});
+    let categoria = '';
+    let ultimo = null;
+
+    /* ---------- Encabezado ---------- */
+    $('#negocio').textContent = NEG.nombreNegocio;
+    $('#bienvenida').textContent = NEG.mensajeBienvenida || '';
+    if (NEG.logoUrl) { $('#logo').src = NEG.logoUrl; $('#logo').classList.remove('hidden'); }
+
+    /* ---------- Navegación ---------- */
+    function ir(v) {
+      ['catalogo', 'carrito', 'datos', 'confirmar', 'exito'].forEach(x => $('#v-' + x).classList.toggle('hidden', x !== v));
+      $('#cartbar').classList.toggle('hidden', v !== 'catalogo' || !cart.length);
+      if (v === 'carrito') renderCarrito();
+      if (v === 'datos') cargarDatos();
+      if (v === 'confirmar') renderResumen();
+      window.scrollTo(0, 0);
+    }
+    document.addEventListener('click', e => { const b = e.target.closest('[data-ir]'); if (b) ir(b.dataset.ir); });
+
+    /* ---------- Catálogo ---------- */
+    function envioTxt(p) {
+      if (NEG.permitirDomicilio !== 'SI') return '';
+      if (p.envioTipo === 'INCLUIDO') return '🚚 Envío incluido';
+      if (p.envioTipo === 'PERSONALIZADO') return '🚚 Envío ' + fmt(p.envioValor) + ' c/u';
+      return Number(NEG.tarifaDomicilio) ? '🚚 + domicilio ' + fmt(NEG.tarifaDomicilio) : '🚚 Envío no incluido';
+    }
+    function inicial(n) { return esc(String(n || '?').trim().charAt(0).toUpperCase()); }
+
+    function renderChips() {
+      const cats = Array.from(new Set(PRODUCTOS.map(p => p.categoria).filter(Boolean))).sort();
+      $('#chips').innerHTML = cats.length ? ['<span class="chip ' + (categoria ? '' : 'on') + '" data-cat="">Todos</span>']
+        .concat(cats.map(c => '<span class="chip ' + (c === categoria ? 'on' : '') + '" data-cat="' + esc(c) + '">' + esc(c) + '</span>')).join('') : '';
+    }
+    $('#chips').addEventListener('click', e => { const c = e.target.closest('[data-cat]'); if (!c) return; categoria = c.dataset.cat; renderChips(); renderProductos(); });
+    $('#buscar').addEventListener('input', renderProductos);
+
+    function enCarrito(id) { const l = cart.find(x => x.productoId === id); return l ? l.cantidad : 0; }
+
+    function renderProductos() {
+      const q = $('#buscar').value.trim().toLowerCase();
+      const lista = PRODUCTOS.filter(p => (!categoria || p.categoria === categoria) &&
+        (!q || [p.nombre, p.marca, p.presentacion, p.descripcion, p.categoria].join(' ').toLowerCase().indexOf(q) >= 0));
+      if (!lista.length) { $('#productos').innerHTML = '<div class="empty card" style="grid-column:1/-1">No encontramos productos.</div>'; return; }
+      $('#productos').innerHTML = lista.map(p => {
+        const n = enCarrito(p.id);
+        return '<div class="card prod ' + (p.disponible ? '' : 'agotado') + '" data-id="' + esc(p.id) + '">' +
+          '<div class="img">' + (p.imagenUrl ? '<img loading="lazy" src="' + esc(p.imagenUrl) + '" alt="' + esc(p.nombre) + '">' : inicial(p.nombre)) + '</div>' +
+          '<div class="body">' +
+          (p.categoria ? '<span class="small muted">' + esc(p.categoria) + '</span>' : '') +
+          '<b>' + esc(p.nombre) + '</b>' +
+          '<span class="small">' + esc([p.marca, p.presentacion].filter(Boolean).join(' · ')) + '</span>' +
+          (p.descripcion ? '<span class="desc">' + esc(p.descripcion) + '</span><a href="#" class="small" data-ver="' + esc(p.id) + '">Ver detalle</a>' : '') +
+          '<span class="price">' + fmt(p.precio) + '</span><span class="ship">' + envioTxt(p) + '</span>' +
+          '<div class="foot">' + (p.disponible
+            ? (n ? stepper(p.id, n) + '<span class="small muted">en carrito</span>' : '<button class="btn primary block" data-add="' + esc(p.id) + '">Agregar al carrito</button>')
+            : '<button class="btn block" disabled>Agotado</button>') +
+          '</div></div></div>';
+      }).join('');
+    }
+    function stepper(id, n) {
+      return '<span class="stepper"><button type="button" data-menos="' + esc(id) + '">−</button><input inputmode="numeric" value="' + n + '" data-cant="' + esc(id) + '"><button type="button" data-mas="' + esc(id) + '">+</button></span>';
+    }
+
+    function setCantidad(id, n) {
+      n = Math.max(0, Math.min(9999, Math.floor(Number(n) || 0)));
+      const l = cart.find(x => x.productoId === id);
+      if (n === 0) cart = cart.filter(x => x.productoId !== id);
+      else if (l) l.cantidad = n;
+      else cart.push({ productoId: id, cantidad: n });
+      store.set(K.cart, cart);
+      actualizarBarra();
+    }
+
+    document.addEventListener('click', e => {
+      const t = e.target.closest('[data-add],[data-mas],[data-menos],[data-del],[data-ver]');
+      if (!t) return;
+      if (t.dataset.ver) { e.preventDefault(); verDetalle(t.dataset.ver); return; }
+      if (t.dataset.add) { setCantidad(t.dataset.add, 1); toast('Agregado: ' + PMAP[t.dataset.add].nombre, 'ok'); }
+      if (t.dataset.mas) setCantidad(t.dataset.mas, enCarrito(t.dataset.mas) + 1);
+      if (t.dataset.menos) setCantidad(t.dataset.menos, enCarrito(t.dataset.menos) - 1);
+      if (t.dataset.del) setCantidad(t.dataset.del, 0);
+      refrescarVista();
+    });
+    document.addEventListener('change', e => { const i = e.target.closest('[data-cant]'); if (i) { setCantidad(i.dataset.cant, i.value); refrescarVista(); } });
+
+    function refrescarVista() {
+      if (!$('#v-catalogo').classList.contains('hidden')) renderProductos();
+      if (!$('#v-carrito').classList.contains('hidden')) renderCarrito();
+    }
+
+    function verDetalle(id) {
+      const p = PMAP[id];
+      const m = modal((p.imagenUrl ? '<img src="' + esc(p.imagenUrl) + '" style="width:100%;max-height:360px;object-fit:contain;border-radius:10px">' : '') +
+        '<h2 style="margin-top:10px">' + esc(p.nombre) + '</h2><p class="muted">' + esc([p.marca, p.presentacion, p.categoria].filter(Boolean).join(' · ')) + '</p>' +
+        '<p style="white-space:pre-line">' + esc(p.descripcion) + '</p><div class="row between"><b style="font-size:1.3rem">' + fmt(p.precio) + '</b><span class="small muted">' + envioTxt(p) + '</span></div>' +
+        '<div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-close>Cerrar</button>' +
+        (p.disponible ? '<button class="btn primary" data-close data-add="' + esc(p.id) + '">Agregar al carrito</button>' : '') + '</div>');
+    }
+
+    /* ---------- Carrito ---------- */
+    function lineas() {
+      return cart.filter(l => PMAP[l.productoId]).map(l => Object.assign({}, PMAP[l.productoId], { productoId: l.productoId, cantidad: l.cantidad }));
+    }
+    function entregaActual() {
+      const r = document.querySelector('input[name=entrega]:checked');
+      return r ? r.value : (cliente.entregaTipo || (NEG.permitirRecoger === 'SI' ? 'RECOGE' : 'DOMICILIO'));
+    }
+    function totalesHtml(t, entrega) {
+      return '<div><span>Subtotal</span><span>' + fmt(t.subtotal) + '</span></div>' +
+        '<div><span>Envío ' + (entrega === 'DOMICILIO' ? '(domicilio)' : '(recoges)') + '</span><span>' + (t.envio ? fmt(t.envio) : 'Sin costo') + '</span></div>' +
+        '<div class="t"><span>Total</span><span>' + fmt(t.total) + '</span></div>';
+    }
+    function actualizarBarra() {
+      const ls = lineas();
+      const n = ls.reduce((s, l) => s + l.cantidad, 0);
+      const t = calcularTotales(ls, NEG, entregaActual());
+      $('#cb-count').textContent = n + (n === 1 ? ' producto' : ' productos');
+      $('#cb-total').textContent = fmt(t.subtotal);
+      $('#cartbar').classList.toggle('hidden', !n || $('#v-catalogo').classList.contains('hidden'));
+    }
+    function renderCarrito() {
+      const ls = lineas();
+      if (!ls.length) {
+        $('#lineas').innerHTML = '<div class="empty">Tu carrito está vacío.<br><br><button class="btn primary" data-ir="catalogo">Ver catálogo</button></div>';
+        $('#tot-carrito').innerHTML = ''; $('#a-datos').disabled = true; return;
+      }
+      $('#a-datos').disabled = false;
+      $('#lineas').innerHTML = ls.map(l => '<div class="line">' +
+        (l.imagenUrl ? '<img src="' + esc(l.imagenUrl) + '" alt="">' : '<div class="ph">' + inicial(l.nombre) + '</div>') +
+        '<div><b>' + esc(l.nombre) + '</b><div class="small muted">' + esc([l.marca, l.presentacion].filter(Boolean).join(' · ')) + '</div>' +
+        '<div class="small">' + fmt(l.precio) + ' c/u' + (l.disponible ? '' : ' · <b style="color:var(--bad)">Agotado: retíralo</b>') + '</div>' +
+        '<div class="row" style="margin-top:6px">' + stepper(l.productoId, l.cantidad) + '<button class="btn sm ghost" data-del="' + esc(l.productoId) + '">🗑 Eliminar</button></div></div>' +
+        '<b>' + fmt(l.precio * l.cantidad) + '</b></div>').join('');
+      const ent = entregaActual();
+      $('#tot-carrito').innerHTML = totalesHtml(calcularTotales(ls, NEG, ent), ent);
+      const minimo = Number(NEG.pedidoMinimo) || 0;
+      const gratis = Number(NEG.envioGratisDesde) || 0;
+      const sub = calcularTotales(ls, NEG, ent).subtotal;
+      $('#nota-envio').innerHTML = [
+        minimo && sub < minimo ? '⚠️ El pedido mínimo es ' + fmt(minimo) + '. Te faltan ' + fmt(minimo - sub) + '.' : '',
+        gratis && sub < gratis && NEG.permitirDomicilio === 'SI' ? '🚚 Envío gratis desde ' + fmt(gratis) + '.' : '',
+        'El costo de envío final depende del tipo de entrega que elijas.',
+      ].filter(Boolean).join('<br>');
+    }
+    $('#vaciar').onclick = async () => { if (await confirmar('¿Vaciar el carrito?')) { cart = []; store.set(K.cart, cart); renderCarrito(); actualizarBarra(); } };
+    $('#cb-ver').onclick = () => ir('carrito');
+    $('#a-datos').onclick = () => {
+      const ls = lineas();
+      if (ls.some(l => !l.disponible)) return toast('Retira los productos agotados del carrito.', 'err');
+      const minimo = Number(NEG.pedidoMinimo) || 0;
+      if (minimo && calcularTotales(ls, NEG, 'RECOGE').subtotal < minimo) return toast('El pedido mínimo es ' + fmt(minimo), 'err');
+      ir('datos');
+    };
+
+    /* ---------- Datos del cliente ---------- */
+    if (NEG.permitirRecoger !== 'SI') $('#op-recoge').classList.add('hidden');
+    if (NEG.permitirDomicilio !== 'SI') $('#op-domi').classList.add('hidden');
+    $('#dir-recogida').textContent = NEG.direccionRecogida || 'En nuestro punto';
+    function cargarDatos() {
+      $('#c-nombre').value = cliente.nombre || ''; $('#c-tel').value = cliente.telefono || '';
+      $('#c-email').value = cliente.email || ''; $('#c-dir').value = cliente.direccion || ''; $('#c-notas').value = cliente.notas || '';
+      const ent = entregaActual();
+      const r = $(ent === 'DOMICILIO' ? '#e-domi' : '#e-recoge'); if (r) r.checked = true;
+      cambioEntrega();
+    }
+    function cambioEntrega() {
+      const ent = entregaActual();
+      $('#box-dir').classList.toggle('hidden', ent !== 'DOMICILIO');
+      $('#c-dir').required = ent === 'DOMICILIO';
+      $('#tot-datos').innerHTML = totalesHtml(calcularTotales(lineas(), NEG, ent), ent);
+    }
+    $$('input[name=entrega]').forEach(r => r.addEventListener('change', cambioEntrega));
+    function leerCliente() {
+      cliente = {
+        nombre: $('#c-nombre').value.trim(), telefono: $('#c-tel').value.trim(), email: $('#c-email').value.trim(),
+        entregaTipo: entregaActual(), direccion: $('#c-dir').value.trim(), notas: $('#c-notas').value.trim(),
+      };
+      store.set(K.cli, Object.assign({}, cliente, { notas: '' }));
+      return cliente;
+    }
+    $('#f-datos').addEventListener('submit', e => {
+      e.preventDefault();
+      const c = leerCliente();
+      if (c.nombre.length < 3) return toast('Escribe tu nombre completo', 'err');
+      if (c.telefono.replace(/\D/g, '').length < 7) return toast('Escribe un teléfono válido', 'err');
+      if (c.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(c.email)) return toast('El correo no es válido', 'err');
+      if (c.entregaTipo === 'DOMICILIO' && c.direccion.length < 5) return toast('Escribe la dirección de entrega', 'err');
+      ir('confirmar');
+    });
+
+    /* ---------- Confirmación ---------- */
+    function renderResumen() {
+      const ls = lineas(), c = cliente, t = calcularTotales(ls, NEG, c.entregaTipo);
+      $('#resumen').innerHTML =
+        '<div class="card" style="background:#f8fafc;margin-bottom:12px"><b>' + esc(c.nombre) + '</b><br>📞 ' + esc(c.telefono) + (c.email ? '<br>✉️ ' + esc(c.email) : '') + '<br>' +
+        (c.entregaTipo === 'DOMICILIO' ? '🛵 Domicilio: ' + esc(c.direccion) : '🏪 Recoges en: ' + esc(NEG.direccionRecogida || 'el punto de venta')) +
+        (c.notas ? '<br>📝 ' + esc(c.notas) : '') + '</div>' +
+        '<div class="table-wrap"><table><tr><th>Producto</th><th class="center">Cant.</th><th class="right">Precio</th><th class="right">Subtotal</th></tr>' +
+        ls.map(l => '<tr><td>' + esc(l.nombre) + '<div class="small muted">' + esc([l.marca, l.presentacion].filter(Boolean).join(' · ')) + '</div></td><td class="center">' + l.cantidad +
+          '</td><td class="right">' + fmt(l.precio) + '</td><td class="right">' + fmt(l.precio * l.cantidad) + '</td></tr>').join('') + '</table></div>' +
+        '<div class="totals" style="margin-top:10px">' + totalesHtml(t, c.entregaTipo) + '</div>';
+      $('#box-terminos').classList.toggle('hidden', !NEG.terminos);
+      $('#terminos').textContent = NEG.terminos || '';
+    }
+    $('#enviar').onclick = async () => {
+      if (NEG.terminos && !$('#acepto').checked) return toast('Debes aceptar las condiciones', 'err');
+      const btn = $('#enviar'); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Enviando…';
+      try {
+        const ls = lineas();
+        const r = await call('apiPublica', 'crearPedido', {
+          slug: BOOT.slug, cliente: cliente, website: $('#website').value,
+          items: ls.map(l => ({ productoId: l.productoId, cantidad: l.cantidad })),
+          totalEsperado: calcularTotales(ls, NEG, cliente.entregaTipo).total,
+        });
+        ultimo = r;
+        const hist = store.get(K.hist, []);
+        hist.unshift({ id: r.id, token: r.token, url: r.url, fecha: r.fecha, total: r.total });
+        store.set(K.hist, hist.slice(0, 30));
+        cart = []; store.set(K.cart, cart);
+        mostrarExito(r);
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally { btn.disabled = false; btn.textContent = 'Confirmar y enviar pedido'; }
+    };
+
+    /* ---------- Éxito y compartir ---------- */
+    function mostrarExito(r) {
+      $('#ex-id').textContent = r.id;
+      $('#ex-url').value = r.url;
+      $('#ex-seguir').href = r.url;
+      $('#ex-mail').textContent = r.cliente.email ? 'Te enviamos la confirmación a ' + r.cliente.email : '';
+      $('#ex-wa-negocio').classList.toggle('hidden', !NEG.whatsapp);
+      ir('exito');
+    }
+    function txtUltimo() { return textoPedido(Object.assign({}, ultimo.cliente, ultimo), ultimo.items, NEG.nombreNegocio, ultimo.url); }
+    $('#ex-copiar-url').onclick = () => copiar(ultimo.url);
+    $('#ex-copiar').onclick = () => copiar(txtUltimo());
+    $('#ex-wa').onclick = () => abrir(urlWhatsApp(txtUltimo()));
+    $('#ex-wa-negocio').onclick = () => abrir(urlWhatsApp(txtUltimo(), NEG.whatsapp));
+    $('#ex-mailto').onclick = () => abrir(urlCorreo(ultimo.cliente.email, 'Pedido ' + ultimo.id + ' - ' + NEG.nombreNegocio, txtUltimo()));
+    $('#ex-nuevo').onclick = () => { ir('catalogo'); renderProductos(); actualizarBarra(); };
+
+    /* ---------- Mis pedidos / repetir ---------- */
+    $('#btn-mis').onclick = () => {
+      const hist = store.get(K.hist, []);
+      modal('<h2>Mis pedidos en este dispositivo</h2>' + (hist.length ? '<div class="table-wrap"><table><tr><th>Pedido</th><th>Fecha</th><th class="right">Total</th><th></th></tr>' +
+        hist.map(h => '<tr><td><b>' + esc(h.id) + '</b></td><td>' + fDia(h.fecha) + '</td><td class="right">' + fmt(h.total) + '</td><td class="right">' +
+          '<a class="btn sm" target="_blank" href="' + esc(h.url) + '">Estado</a> <button class="btn sm primary" data-close data-rep="' + esc(h.id) + '|' + esc(h.token) + '">Repetir</button></td></tr>').join('') +
+        '</table></div>' : '<div class="empty">Aún no has hecho pedidos desde este dispositivo.</div>') +
+        '<div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-close>Cerrar</button></div>');
+    };
+    document.addEventListener('click', e => { const b = e.target.closest('[data-rep]'); if (b) { const [id, token] = b.dataset.rep.split('|'); repetir(id, token); } });
+
+    async function repetir(id, token) {
+      try {
+        const r = await call('apiPublica', 'repetirPedido', { slug: BOOT.slug, id: id, token: token });
+        let omitidos = 0;
+        r.items.forEach(i => {
+          const p = PMAP[i.productoId];
+          if (!p || !p.disponible) { omitidos++; return; }
+          setCantidad(i.productoId, enCarrito(i.productoId) + i.cantidad);
+        });
+        cliente = Object.assign({}, r.cliente, cliente.nombre ? cliente : {});
+        store.set(K.cli, cliente);
+        toast('Pedido ' + id + ' cargado al carrito' + (omitidos ? ' (' + omitidos + ' producto(s) ya no disponibles)' : ''), 'ok');
+        ir('carrito');
+      } catch (e) { toast(e.message, 'err'); }
+    }
+
+    /* ---------- Inicio ---------- */
+    renderChips(); renderProductos(); actualizarBarra();
+    if (!PRODUCTOS.length) $('#productos').innerHTML = '<div class="empty card" style="grid-column:1/-1">El catálogo aún no tiene productos.</div>';
+    if (BOOT.repetir) repetir(BOOT.repetir.id, BOOT.repetir.token);
+  </script>
+</body>
+</html>

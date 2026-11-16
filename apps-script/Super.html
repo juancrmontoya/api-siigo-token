@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('Styles') ?>
+  <style>
+    :root { --primary: #4f46e5; }
+    header.top { background: #0f172a; color: #fff; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tabs a { color: #cbd5e1; padding: 7px 12px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .tabs a.on, .tabs a:hover { background: #1e293b; color: #fff; }
+    .wrap { max-width: 1300px; margin: 18px auto; padding: 0 14px; }
+    .login { max-width: 400px; margin: 10vh auto; padding: 0 16px; }
+  </style>
+</head>
+<body>
+  <div id="v-login" class="login hidden"><div class="card"><h1>Consola SaaS</h1><p class="muted">Administración de la plataforma</p>
+    <form id="f-login"><label>Correo</label><input id="l-email" type="email" required><label>Clave</label><input id="l-clave" type="password" required>
+    <button class="btn primary block" style="margin-top:14px">Ingresar</button></form></div></div>
+
+  <div id="v-app" class="hidden">
+    <header class="top"><b id="brand"></b>
+      <div class="tabs"><a data-tab="metricas">📊 Métricas</a><a data-tab="empresas">🏢 Empresas</a><a data-tab="planes">📦 Planes</a><a data-tab="facturas">💳 Facturación</a><a data-tab="auditoria">🧾 Auditoría</a><a id="clave">🔑 Mi clave</a><a id="salir">↩ Salir</a></div>
+    </header>
+    <div class="wrap" id="body"></div>
+  </div>
+
+  <?!= include('Common') ?>
+  <script>
+    const BOOT = <?!= boot ?>;
+    BOOT.estados = Object.assign({}, BOOT.estados, { ACTIVA: 'Activa', PRUEBA: 'Prueba', SUSPENDIDA: 'Suspendida', CANCELADA: 'Cancelada', PENDIENTE: 'Pendiente', PAGADA: 'Pagada', VENCIDA: 'Vencida' });
+    let TOKEN = store.get('sup_token', null);
+    let PLANES = [];
+    $('#brand').textContent = BOOT.app + ' · Consola SaaS';
+    const api = (a, d) => call('apiSuper', TOKEN, a, d || {}).catch(e => { if (/SESION_EXPIRADA|autorizado/.test(e.message)) salir(); throw e; });
+    const kpi = (l, v) => '<div class="card kpi"><div class="l">' + esc(l) + '</div><div class="v">' + v + '</div></div>';
+    const load = () => { $('#body').innerHTML = '<div class="loading"><span class="spinner"></span></div>'; };
+
+    $('#f-login').onsubmit = async e => {
+      e.preventDefault();
+      try { const r = await call('loginSuper', $('#l-email').value, $('#l-clave').value); TOKEN = r.token; store.set('sup_token', TOKEN); entrar(); }
+      catch (err) { toast(err.message, 'err'); }
+    };
+    $('#salir').onclick = () => { call('logout', TOKEN); salir(); };
+    $('#clave').onclick = () => {
+      const m = modal('<h3>Cambiar mi clave</h3><form id="fk"><label>Clave actual</label><input type="password" name="actual" required><label>Nueva clave</label><input type="password" name="nueva" required minlength="8">' +
+        '<div class="row" style="justify-content:flex-end;margin-top:14px"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary">Guardar</button></div></form>', { ancho: 420 });
+      $('#fk', m.el).onsubmit = async e => { e.preventDefault(); try { await api('cambiarClave', Object.fromEntries(new FormData(e.target).entries())); toast('Clave actualizada', 'ok'); m.cerrar(); } catch (err) { toast(err.message, 'err'); } };
+    };
+    function salir() { TOKEN = null; store.del('sup_token'); $('#v-app').classList.add('hidden'); $('#v-login').classList.remove('hidden'); }
+    async function entrar() {
+      try { PLANES = await api('listarPlanes'); } catch (e) { return salir(); }
+      $('#v-login').classList.add('hidden'); $('#v-app').classList.remove('hidden'); tab('metricas');
+    }
+    $$('[data-tab]').forEach(a => a.onclick = () => tab(a.dataset.tab));
+    function tab(t) { $$('[data-tab]').forEach(a => a.classList.toggle('on', a.dataset.tab === t)); ({ metricas, empresas, planes, facturas, auditoria })[t](); }
+
+    async function metricas() {
+      load();
+      const m = await api('metricas');
+      $('#body').innerHTML = '<h1>Métricas de la plataforma</h1><div class="grid g4">' + kpi('Empresas', m.empresas) + kpi('Activas', m.activas) + kpi('En prueba', m.prueba) + kpi('Suspendidas', m.suspendidas) +
+        kpi('MRR (ingreso mensual recurrente)', fmt(m.mrr)) + kpi('Recaudado este mes', fmt(m.recaudadoMes)) + kpi('Por cobrar', fmt(m.porCobrar)) + kpi('Facturas vencidas', m.vencidas) + '</div>' +
+        '<div class="card" style="margin-top:14px"><h3>Proceso de facturación</h3><p class="small muted">Se ejecuta diariamente (6 a. m.): emite facturas, envía recordatorios y suspende por mora tras ' + 5 + ' días de gracia.</p><button class="btn" id="run">Ejecutar ahora</button></div>';
+      $('#run').onclick = async () => { try { await api('ejecutarProcesoDiario'); toast('Proceso ejecutado', 'ok'); metricas(); } catch (e) { toast(e.message, 'err'); } };
+    }
+
+    async function empresas() {
+      load();
+      const es = await api('listarEmpresas');
+      $('#body').innerHTML = '<div class="row between"><h1>Empresas</h1><button class="btn primary" id="nueva">＋ Nueva empresa</button></div>' +
+        '<div class="card table-wrap" style="margin-top:10px"><table><tr><th>Empresa</th><th>Código</th><th>Plan</th><th>Estado</th><th class="right">Valor</th><th>Próximo cobro</th><th></th></tr>' +
+        (es.map(e => '<tr><td><b>' + esc(e.nombre) + '</b><div class="small muted">' + esc(e.emailAdmin) + ' · ' + esc(e.nit) + '</div></td><td>' + esc(e.slug) + '</td><td>' + esc(e.plan) +
+          '<div class="small muted">' + esc(e.suscripcion.ciclo || '') + '</div></td><td>' + badge(e.estado) + '</td><td class="right">' + fmt(e.suscripcion.valor) + '</td><td>' + fDia(e.suscripcion.proximoCobro) + '</td>' +
+          '<td class="right"><button class="btn sm" data-e="' + esc(e.id) + '">Gestionar</button></td></tr>').join('') || '<tr><td colspan="7" class="empty">Aún no hay empresas</td></tr>') + '</table></div>';
+      $('#nueva').onclick = () => formEmpresa({});
+      $$('[data-e]').forEach(b => b.onclick = () => formEmpresa(es.find(e => e.id === b.dataset.e)));
+    }
+
+    function formEmpresa(e) {
+      const nueva = !e.id;
+      const m = modal('<h2>' + (nueva ? 'Nueva empresa' : esc(e.nombre)) + '</h2>' +
+        (nueva ? '' : '<div class="row small" style="margin-bottom:8px"><a href="' + esc(e.urlAdmin) + '" target="_blank">Panel admin ↗</a><a href="' + esc(e.urlTienda) + '" target="_blank">Formulario público ↗</a>' + badge(e.estado) + '</div>') +
+        '<form id="fe"><div class="grid g2"><div><label>Nombre comercial *</label><input name="nombre" required></div><div><label>Código (slug) *</label><input name="slug" ' + (nueva ? '' : 'readonly') + ' placeholder="mi-empresa"></div>' +
+        '<div><label>NIT</label><input name="nit"></div><div><label>Teléfono / WhatsApp</label><input name="telefono"></div>' +
+        '<div><label>Correo administrador *</label><input name="emailAdmin" type="email" required></div>' + (nueva ? '<div><label>Nombre del administrador</label><input name="nombreAdmin"></div>' : '') +
+        '<div><label>Plan</label><select name="plan">' + PLANES.filter(p => p.activo === 'SI').map(p => '<option value="' + esc(p.id) + '">' + esc(p.nombre) + ' · ' + fmt(p.precioMensual) + '/mes</option>').join('') + '</select></div>' +
+        '<div><label>Ciclo de cobro</label><select name="ciclo"><option value="MENSUAL">Mensual</option><option value="ANUAL">Anual</option></select></div>' +
+        (nueva ? '' : '<div><label>Valor personalizado (opcional)</label><input name="valorPersonalizado" type="number" min="0" placeholder="' + esc(e.suscripcion.valor) + '"></div>') + '</div>' +
+        '<label>Notas internas</label><textarea name="notas"></textarea>' +
+        '<div class="row" style="margin-top:14px">' + (nueva ? '' :
+          '<button type="button" class="btn sm" data-st="ACTIVA">Activar</button><button type="button" class="btn sm" data-st="SUSPENDIDA">Suspender</button><button type="button" class="btn sm danger" data-st="CANCELADA">Cancelar cuenta</button>' +
+          '<button type="button" class="btn sm" id="reset">Restablecer clave admin</button><button type="button" class="btn sm" id="fact">Factura manual</button>') +
+        '<span class="grow"></span><button type="button" class="btn" data-close>Cerrar</button><button class="btn primary">' + (nueva ? 'Crear empresa' : 'Guardar') + '</button></div></form>', { ancho: 760 });
+      const f = $('#fe', m.el);
+      ['nombre', 'slug', 'nit', 'telefono', 'emailAdmin', 'plan', 'notas'].forEach(k => { if (e[k]) f.elements[k].value = e[k]; });
+      if (e.suscripcion && e.suscripcion.ciclo) f.elements.ciclo.value = e.suscripcion.ciclo;
+      f.onsubmit = async ev => {
+        ev.preventDefault();
+        const d = Object.fromEntries(new FormData(f).entries()); d.id = e.id;
+        const btn = ev.submitter; btn.disabled = true;
+        try {
+          if (nueva) {
+            const r = await api('crearEmpresa', d);
+            m.el.innerHTML = '<h2>✅ Empresa creada</h2><p>Se envió un correo de bienvenida al administrador.</p><p><b>Código:</b> ' + esc(r.slug) + '<br><b>Clave temporal:</b> <code>' + esc(r.claveTemporal) + '</code></p>' +
+              '<p><b>Panel:</b> <a target="_blank" href="' + esc(r.urlAdmin) + '">' + esc(r.urlAdmin) + '</a><br><b>Formulario:</b> <a target="_blank" href="' + esc(r.urlTienda) + '">' + esc(r.urlTienda) + '</a></p>' +
+              '<div class="row" style="justify-content:flex-end"><button class="btn primary" data-close>Listo</button></div>';
+          } else { await api('actualizarEmpresa', d); toast('Empresa actualizada', 'ok'); m.cerrar(); }
+          empresas();
+        } catch (err) { toast(err.message, 'err'); btn.disabled = false; }
+      };
+      $$('[data-st]', m.el).forEach(b => b.onclick = async () => {
+        const motivo = await confirmar('¿Cambiar el estado de ' + e.nombre + ' a ' + b.dataset.st + '?', true);
+        if (motivo === null) return;
+        try { await api('cambiarEstadoEmpresa', { id: e.id, estado: b.dataset.st, motivo: motivo }); toast('Estado actualizado', 'ok'); m.cerrar(); empresas(); } catch (err) { toast(err.message, 'err'); }
+      });
+      if ($('#reset', m.el)) $('#reset', m.el).onclick = async () => {
+        if (!(await confirmar('Se generará una clave temporal y se enviará a ' + e.emailAdmin + '.'))) return;
+        try { const r = await api('resetClaveAdmin', { id: e.id }); modal('<h3>Clave temporal</h3><p><code>' + esc(r.claveTemporal) + '</code></p><button class="btn" data-close>Cerrar</button>', { ancho: 380 }); } catch (err) { toast(err.message, 'err'); }
+      };
+      if ($('#fact', m.el)) $('#fact', m.el).onclick = async () => {
+        const v = prompt('Valor de la factura', e.suscripcion.valor); if (v === null) return;
+        try { await api('facturaManual', { empresaId: e.id, valor: v }); toast('Factura generada', 'ok'); } catch (err) { toast(err.message, 'err'); }
+      };
+    }
+
+    async function planes() {
+      load();
+      PLANES = await api('listarPlanes');
+      $('#body').innerHTML = '<div class="row between"><h1>Planes y licencias</h1><button class="btn primary" id="np">＋ Nuevo plan</button></div><div class="card table-wrap" style="margin-top:10px"><table>' +
+        '<tr><th>Código</th><th>Nombre</th><th class="right">Mensual</th><th class="right">Anual</th><th class="right">Productos</th><th class="right">Usuarios</th><th class="right">Pedidos/mes</th><th>Activo</th><th></th></tr>' +
+        PLANES.map(p => '<tr><td>' + esc(p.id) + '</td><td>' + esc(p.nombre) + '</td><td class="right">' + fmt(p.precioMensual) + '</td><td class="right">' + fmt(p.precioAnual) + '</td><td class="right">' + p.maxProductos +
+          '</td><td class="right">' + p.maxUsuarios + '</td><td class="right">' + p.maxPedidosMes + '</td><td>' + esc(p.activo) + '</td><td><button class="btn sm" data-p="' + esc(p.id) + '">Editar</button></td></tr>').join('') + '</table></div>';
+      const form = p => {
+        const m = modal('<h2>Plan</h2><form id="fp"><div class="grid g2">' +
+          [['id', 'Código'], ['nombre', 'Nombre'], ['precioMensual', 'Precio mensual'], ['precioAnual', 'Precio anual'], ['maxProductos', 'Máx. productos'], ['maxUsuarios', 'Máx. usuarios'], ['maxPedidosMes', 'Máx. pedidos/mes']]
+            .map(x => '<div><label>' + x[1] + '</label><input name="' + x[0] + '" ' + (x[0] === 'id' && p.id ? 'readonly' : '') + ' required></div>').join('') +
+          '<div><label>Activo</label><select name="activo"><option>SI</option><option>NO</option></select></div></div><div class="row" style="justify-content:flex-end;margin-top:14px"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary">Guardar</button></div></form>');
+        const f = $('#fp', m.el);
+        Object.keys(p).forEach(k => { if (f.elements[k]) f.elements[k].value = p[k]; });
+        f.onsubmit = async ev => { ev.preventDefault(); try { await api('guardarPlan', Object.fromEntries(new FormData(f).entries())); m.cerrar(); planes(); } catch (err) { toast(err.message, 'err'); } };
+      };
+      $('#np').onclick = () => form({});
+      $$('[data-p]').forEach(b => b.onclick = () => form(PLANES.find(p => p.id === b.dataset.p)));
+    }
+
+    async function facturas(estado) {
+      load();
+      const fs = await api('listarFacturas', { estado: estado || '' });
+      $('#body').innerHTML = '<div class="row between"><h1>Facturación recurrente</h1><select id="fe-est" style="width:200px"><option value="">Todas</option><option>PENDIENTE</option><option>VENCIDA</option><option>PAGADA</option></select></div>' +
+        '<div class="card table-wrap" style="margin-top:10px"><table><tr><th>Factura</th><th>Empresa</th><th>Período</th><th class="right">Valor</th><th>Emitida</th><th>Vence</th><th>Estado</th><th></th></tr>' +
+        (fs.map(f => '<tr><td>' + esc(f.id) + '</td><td>' + esc(f.empresa) + '</td><td>' + esc(f.periodo) + '</td><td class="right">' + fmt(f.valor) + '</td><td>' + fDia(f.emitida) + '</td><td>' + fDia(f.vence) + '</td><td>' + badge(f.estado) +
+          (f.estado === 'PAGADA' ? '<div class="small muted">' + fDia(f.pagada) + ' · ' + esc(f.medioPago) + '</div>' : '') + '</td><td>' + (f.estado !== 'PAGADA' ? '<button class="btn sm primary" data-f="' + esc(f.id) + '">Registrar pago</button>' : '') + '</td></tr>').join('') ||
+          '<tr><td colspan="8" class="empty">Sin facturas</td></tr>') + '</table></div>';
+      $('#fe-est').value = estado || '';
+      $('#fe-est').onchange = () => facturas($('#fe-est').value);
+      $$('[data-f]').forEach(b => b.onclick = () => {
+        const m = modal('<h3>Registrar pago ' + esc(b.dataset.f) + '</h3><label>Medio de pago</label><select id="mp"><option>Transferencia</option><option>PSE</option><option>Tarjeta</option><option>Efectivo</option><option>Pasarela</option></select>' +
+          '<label>Referencia</label><input id="ref"><div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-close>Cancelar</button><button class="btn primary" id="ok">Registrar</button></div>', { ancho: 420 });
+        $('#ok', m.el).onclick = async () => { try { await api('marcarPagada', { id: b.dataset.f, medioPago: $('#mp', m.el).value, referencia: $('#ref', m.el).value }); toast('Pago registrado; cuenta reactivada si estaba suspendida', 'ok'); m.cerrar(); facturas(estado); } catch (err) { toast(err.message, 'err'); } };
+      });
+    }
+
+    async function auditoria() {
+      load();
+      const a = await api('auditoria');
+      $('#body').innerHTML = '<h1>Auditoría</h1><div class="card table-wrap"><table><tr><th>Fecha</th><th>Actor</th><th>Empresa</th><th>Acción</th><th>Detalle</th></tr>' +
+        a.map(x => '<tr><td>' + fFecha(x.fecha) + '</td><td>' + esc(x.actor) + '</td><td>' + esc(x.empresaId) + '</td><td>' + esc(x.accion) + '</td><td class="small" style="max-width:380px;word-break:break-all">' + esc(x.detalle) + '</td></tr>').join('') + '</table></div>';
+    }
+
+    if (TOKEN) entrar(); else salir();
+  </script>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('Styles') ?>
+  <style>
+    :root { --primary: <?= color ?>; }
+    header.top { background: var(--primary); color: #fff; padding: 18px 16px; }
+    .wrap { max-width: 760px; margin: auto; padding: 0 12px; }
+    .estado-big { font-size: 1.1rem; padding: 6px 14px; }
+    .progress { display: flex; gap: 6px; margin: 14px 0 4px; }
+    .progress div { flex: 1; height: 8px; border-radius: 4px; background: var(--line); }
+    .progress div.on { background: var(--primary); }
+    .progress-l { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header class="top"><div class="wrap"><div class="small" style="opacity:.85" id="h-negocio"></div><h1 id="h-id">Pedido</h1></div></header>
+  <div class="wrap" style="margin-top:14px">
+    <div id="contenido"><div class="loading"><span class="spinner"></span><br>Consultando tu pedido…</div></div>
+  </div>
+  <?!= include('Common') ?>
+  <script>
+    const BOOT = <?!= boot ?>;
+    $('#h-negocio').textContent = BOOT.nombreNegocio;
+    $('#h-id').textContent = 'Pedido ' + BOOT.id;
+    let data = null;
+    const FLUJO = ['SOLICITADO', 'RECIBIDO', 'DESPACHADO'];
+
+    async function cargar(silencioso) {
+      try {
+        data = await call('apiPublica', 'consultarPedido', { slug: BOOT.slug, id: BOOT.id, token: BOOT.token });
+        render();
+      } catch (e) {
+        if (!silencioso) $('#contenido').innerHTML = '<div class="card empty">' + esc(e.message) + '</div>';
+      }
+    }
+
+    function render() {
+      const p = data.pedido, n = data.negocio;
+      const paso = FLUJO.indexOf(p.estado);
+      const terminal = ['CANCELADO', 'ANULADO'].indexOf(p.estado) >= 0;
+      $('#contenido').innerHTML =
+        '<div class="card"><div class="row between"><div><div class="small muted">Estado actual</div>' + badge(p.estado).replace('badge', 'badge estado-big') + '</div>' +
+        '<div class="right"><div class="small muted">Total</div><b style="font-size:1.4rem">' + fmt(p.total) + '</b></div></div>' +
+        (!terminal ? '<div class="progress">' + FLUJO.map((s, i) => '<div class="' + (i <= paso ? 'on' : '') + '"></div>').join('') + '</div>' +
+          '<div class="progress-l"><span>Solicitado</span><span>Recibido</span><span>' + (p.entregaTipo === 'DOMICILIO' ? 'Despachado' : 'Entregado') + '</span></div>' : '') +
+        (p.estado === 'SIN_EXISTENCIAS' ? '<p style="color:var(--warn)"><b>Algunos productos no tienen existencias.</b> El negocio se comunicará contigo.</p>' : '') +
+        '<p class="small muted" style="margin-top:10px">Actualizado: ' + fFecha(p.actualizado) + ' · se actualiza automáticamente</p></div>' +
+
+        '<div class="grid g2" style="margin-top:14px">' +
+        '<div class="card"><h3>Historial</h3><ul class="timeline">' + data.pedido.historial.map(h =>
+          '<li><b>' + esc(BOOT.estados[h.estado] || h.estado) + '</b><div class="small muted">' + fFecha(h.fecha) + '</div>' + (h.nota ? '<div class="small">' + esc(h.nota) + '</div>' : '') + '</li>').join('') + '</ul></div>' +
+        '<div class="card"><h3>Entrega</h3><p><b>' + esc(p.nombre) + '</b><br>📞 ' + esc(p.telefono) + '<br>' +
+        (p.entregaTipo === 'DOMICILIO' ? '🛵 Domicilio: ' + esc(p.direccion) : '🏪 Recoges en: ' + esc(n.direccionRecogida || 'el punto de venta')) +
+        (p.notas ? '<br>📝 ' + esc(p.notas) : '') + '</p><p class="small muted">Realizado: ' + fFecha(p.fecha) + '</p></div></div>' +
+
+        '<div class="card" style="margin-top:14px"><h3>Productos</h3><div class="table-wrap"><table><tr><th>Producto</th><th class="center">Cant.</th><th class="right">Subtotal</th></tr>' +
+        p.items.map(i => '<tr><td>' + esc(i.nombre) + '<div class="small muted">' + esc([i.marca, i.presentacion].filter(Boolean).join(' · ')) + '</div></td><td class="center">' + i.cantidad + '</td><td class="right">' + fmt(i.subtotal) + '</td></tr>').join('') +
+        '<tr><td colspan="2" class="right">Subtotal</td><td class="right">' + fmt(p.subtotal) + '</td></tr>' +
+        '<tr><td colspan="2" class="right">Envío</td><td class="right">' + fmt(p.envio) + '</td></tr>' +
+        '<tr><td colspan="2" class="right"><b>Total</b></td><td class="right"><b>' + fmt(p.total) + '</b></td></tr></table></div></div>' +
+
+        '<div class="card" style="margin:14px 0 30px"><h3>Compartir y acciones</h3><div class="grid g2">' +
+        '<button class="btn block" id="a-copiar">📋 Copiar pedido</button>' +
+        '<button class="btn block" id="a-link">🔗 Copiar enlace de seguimiento</button>' +
+        '<button class="btn wa block" id="a-wa">💬 Compartir por WhatsApp</button>' +
+        (n.whatsapp ? '<button class="btn wa block" id="a-wa-neg">💬 Escribir al negocio</button>' : '') +
+        '<button class="btn block" id="a-mail">✉️ Enviar por correo</button>' +
+        '<a class="btn primary block" href="' + esc(data.urlTienda + '&o=' + encodeURIComponent(p.id) + '&k=' + encodeURIComponent(BOOT.token)) + '">🔁 Repetir este pedido</a>' +
+        (p.estado === 'SOLICITADO' ? '<button class="btn danger block" id="a-cancelar">Cancelar pedido</button>' : '') +
+        '</div></div>';
+
+      const txt = () => textoPedido(p, p.items, n.nombreNegocio, data.url);
+      $('#a-copiar').onclick = () => copiar(txt());
+      $('#a-link').onclick = () => copiar(data.url);
+      $('#a-wa').onclick = () => abrir(urlWhatsApp(txt()));
+      if ($('#a-wa-neg')) $('#a-wa-neg').onclick = () => abrir(urlWhatsApp('Hola, consulto por mi pedido ' + p.id + ': ' + data.url, n.whatsapp));
+      $('#a-mail').onclick = () => abrir(urlCorreo(p.email, 'Pedido ' + p.id + ' - ' + n.nombreNegocio, txt()));
+      if ($('#a-cancelar')) $('#a-cancelar').onclick = async () => {
+        const motivo = await confirmar('¿Seguro que deseas cancelar el pedido ' + p.id + '?', true);
+        if (motivo === null) return;
+        try { await call('apiPublica', 'cancelarPedido', { slug: BOOT.slug, id: BOOT.id, token: BOOT.token, motivo: motivo }); toast('Pedido cancelado', 'ok'); cargar(); }
+        catch (e) { toast(e.message, 'err'); }
+      };
+    }
+
+    cargar();
+    setInterval(() => { if (document.visibilityState === 'visible') cargar(true); }, 60000);
+  </script>
+</body>
+</html>
