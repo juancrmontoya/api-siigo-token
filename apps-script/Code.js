@@ -12,7 +12,7 @@ function doGet(e) {
   const p = (e && e.parameter) || {};
   const page = String(p.page || '').toLowerCase();
   try {
-    if (page === 'super') return render_('Super', {}, 'Consola ' + APP.NOMBRE);
+    if (page === 'super') return render_('Superht', {}, 'Consola ' + APP.NOMBRE);
     if (page === 'admin' || (!page && !p.e)) return render_('Admin', { slug: str_(p.e, 60) }, 'Panel administrativo');
     if (page === 'pedido') return renderSeguimiento_(p);
     return renderTienda_(p);

@@ -46,7 +46,7 @@ apps-script/          Código que se sube a Apps Script (clasp rootDir)
   Notify.js           Correos HTML
   Billing.js          Facturación recurrente (activador diario)
   Super.js            API de la consola SaaS
-  *.html              Interfaces (Admin, Tienda, Seguimiento, Super, Mensaje, Styles, Common)
+  *.html              Interfaces (Admin, Tienda, Seguimiento, Superht, Mensaje, Styles, Common)
 tests/simulador.js    Simulador local de servicios de Google + 21 pruebas del flujo completo
 docs/ALCANCE.md       Revisión de redacción, alcance y sugerencias
 ```
