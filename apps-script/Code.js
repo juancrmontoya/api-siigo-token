@@ -186,7 +186,13 @@ function instalar() {
   const p = props_();
   let mss;
   if (p.getProperty('MASTER_ID')) {
+    // Permite usar una hoja de cálculo existente: basta con fijar MASTER_ID en las propiedades del proyecto.
     mss = SpreadsheetApp.openById(p.getProperty('MASTER_ID'));
+    if (!p.getProperty('FOLDER_ID')) {
+      const padres = DriveApp.getFileById(mss.getId()).getParents();
+      const base = padres.hasNext() ? padres.next() : DriveApp.getRootFolder();
+      p.setProperty('FOLDER_ID', base.createFolder('Empresas').getId());
+    }
   } else {
     const carpeta = DriveApp.createFolder(APP.NOMBRE + ' - Plataforma SaaS');
     const empresas = carpeta.createFolder('Empresas');

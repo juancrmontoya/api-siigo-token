@@ -58,7 +58,7 @@ class Spreadsheet {
   setSpreadsheetTimeZone() {}
 }
 const cacheStore = {};
-const mkFile = id => ({ getId: () => id, moveTo() {}, setTrashed() {}, setSharing() {} });
+const mkFile = id => ({ getId: () => id, moveTo() {}, setTrashed() {}, setSharing() {}, getParents: () => { let d = false; return { hasNext: () => !d, next: () => { d = true; return mkFolder(nid('F')); } }; } });
 const mkFolder = id => ({ getId: () => id, createFolder: () => mkFolder(nid('F')), createFile: () => mkFile(nid('FILE')) });
 const propsStore = {};
 
@@ -108,8 +108,14 @@ function test(nombre, fn) {
 const throws = (fn, re) => assert.throws(fn, e => re.test(e.message), 'esperaba error ' + re);
 
 run("INSTALACION.SUPER_EMAIL = 'super@test.com'");
-test('instalar crea base maestra y planes', () => {
+test('instalar sobre una hoja existente (solo MASTER_ID) crea tablas y carpeta', () => {
+  const existente = ctx.SpreadsheetApp.create('Data_microapp');
+  propsStore.MASTER_ID = existente.getId();
   run('instalar()');
+  assert.ok(propsStore.FOLDER_ID);
+  assert.equal(run("Db.all(master_(), 'Planes').length"), 3);
+  assert.ok(!existente.getSheetByName('Hoja 1'));
+  run('instalar()'); // idempotente
   assert.equal(run("Db.all(master_(), 'Planes').length"), 3);
 });
 let demo;
