@@ -63,45 +63,41 @@ un desarrollador:
 
 ### Prioridad alta (afecta la venta del producto)
 
-1. **Facturación electrónica DIAN (integración con Siigo).** En Colombia, un negocio B2B necesita
-   factura electrónica. Al pasar un pedido a *Despachado* se puede crear la factura en Siigo por API
-   (el nombre del repositorio sugiere que ya trabajas con Siigo). Es un diferenciador fuerte y se puede
-   cobrar como complemento.
-2. **Inventario numérico.** "Sin existencias" hoy es reactivo: el negocio lo marca después de recibir el
+1. **Inventario numérico.** "Sin existencias" hoy es reactivo: el negocio lo marca después de recibir el
    pedido. Con un campo de stock que se descuente al despachar y que marque el producto como agotado al
    llegar a 0, se evitan pedidos imposibles de cumplir.
-3. **Precios B2B.** Listas de precios por tipo de cliente, descuentos por volumen, cantidad mínima y
+2. **Precios B2B.** Listas de precios por tipo de cliente, descuentos por volumen, cantidad mínima y
    múltiplos de empaque (por ejemplo, solo cajas de 12). Es lo que distingue un catálogo B2B de una
    tienda B2C.
-4. **Datos tributarios del comprador.** NIT o cédula, razón social y forma de pago (contado, crédito
-   a 30 días, transferencia). Son necesarios para el punto 1.
-5. **Ley 1581 de 2012 (habeas data).** El formulario recoge datos personales. Debe tener una casilla de
+3. **Datos tributarios del comprador.** NIT o cédula, razón social y forma de pago (contado, crédito
+   a 30 días, transferencia). Son necesarios para vender a crédito y para facturar.
+4. **Ley 1581 de 2012 (habeas data).** El formulario recoge datos personales. Debe tener una casilla de
    autorización y enlazar la política de tratamiento de datos de cada negocio. El campo "Condiciones" de
    la configuración ya obliga a aceptarlas; falta redactar una política modelo.
-6. **Despacho parcial y edición del pedido por el negocio.** Si solo falta un producto, hoy el pedido
+5. **Despacho parcial y edición del pedido por el negocio.** Si solo falta un producto, hoy el pedido
    completo queda en "Sin existencias". Conviene que el negocio pueda ajustar cantidades o quitar
    productos (con historial) y despachar el resto.
 
 ### Prioridad media
 
-7. **Pagos en línea en el formulario.** Pago anticipado con Wompi o Mercado Pago, y el estado
+6. **Pagos en línea en el formulario.** Pago anticipado con Wompi o Mercado Pago, y el estado
    "Pagado" separado de "Despachado".
-8. **Zonas y horarios de domicilio.** Tarifas por barrio o ciudad, horario de atención y mensaje
+7. **Zonas y horarios de domicilio.** Tarifas por barrio o ciudad, horario de atención y mensaje
    automático fuera de horario.
-9. **Notificaciones automáticas por WhatsApp.** API de WhatsApp Business como complemento de pago (ver §1).
-10. **Registro autónomo de empresas.** Una página donde el negocio se registre, elija plan y pague, sin
+8. **Notificaciones automáticas por WhatsApp.** API de WhatsApp Business como complemento de pago (ver §1).
+9. **Registro autónomo de empresas.** Una página donde el negocio se registre, elija plan y pague, sin
     que tú tengas que crearlo a mano. Es clave para escalar las ventas.
-11. **Variantes de producto y varias imágenes.** Tallas, sabores o colores con su propio precio.
-12. **Clientes registrados.** Un inicio de sesión ligero (código por correo o WhatsApp) para ver su
+10. **Variantes de producto y varias imágenes.** Tallas, sabores o colores con su propio precio.
+11. **Clientes registrados.** Un inicio de sesión ligero (código por correo o WhatsApp) para ver su
     historial desde cualquier dispositivo. Hoy "Mis pedidos" vive en el navegador.
-13. **Guía de despacho o comanda imprimible por pedido**, y asignación de domiciliario.
+12. **Guía de despacho o comanda imprimible por pedido**, y asignación de domiciliario.
 
 ### Prioridad baja
 
-14. Respaldo automático semanal de cada empresa (copia del Spreadsheet).
-15. Indicadores SaaS adicionales: cancelación de clientes (*churn*), ingreso promedio por empresa y
+13. Respaldo automático semanal de cada empresa (copia del Spreadsheet).
+14. Indicadores SaaS adicionales: cancelación de clientes (*churn*), ingreso promedio por empresa y
     clientes en riesgo (empresas sin pedidos en 15 días).
-16. Dominio propio o marca blanca (ver §4).
+15. Dominio propio o marca blanca (ver §4).
 
 ## 4. Límites técnicos de Google Apps Script (tenlos en cuenta al vender)
 
